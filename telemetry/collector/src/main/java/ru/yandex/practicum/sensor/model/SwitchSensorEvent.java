@@ -2,11 +2,11 @@ package ru.yandex.practicum.sensor.model;
 
 
 import lombok.Getter;
+import lombok.Setter;
 import lombok.ToString;
 import ru.yandex.practicum.sensor.enums.SensorEventType;
 
-import java.time.Instant;
-
+@Setter
 @Getter
 @ToString
 
