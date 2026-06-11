@@ -7,8 +7,6 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.sensor.model.SensorEvent;
 
-
-
 @RestController
 @RequestMapping("/events")
 @Slf4j

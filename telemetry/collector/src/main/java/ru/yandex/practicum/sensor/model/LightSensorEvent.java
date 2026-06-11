@@ -8,7 +8,6 @@ import ru.yandex.practicum.sensor.enums.SensorEventType;
 @Setter
 @Getter
 @ToString
-
 public class LightSensorEvent extends SensorEvent {
     private Integer linkQuality;
     private Integer luminosity;
