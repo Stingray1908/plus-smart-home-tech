@@ -1,24 +1,17 @@
+
 package ru.yandex.practicum.hub.model;
 
+import lombok.Getter;
+import lombok.Setter;
+import ru.yandex.practicum.hub.enums.HubEventType;
+
+@Getter
+@Setter
 public class DeviceRemovedEvent extends BaseHubEvent {
     private String id;
 
-    public String getId() {
-        return id;
-    }
-
-    public void setId(String id) {
-        this.id = id;
-    }
-
     @Override
-    public String toString() {
-        return "DeviceRemovedEvent{" +
-                "hubId='" + getHubId() + "'" +
-                ", timestamp='" + getTimestamp() + "'" +
-                ", type='" + getType() + "'" +
-                ", id='" + id + "'" +
-                '}';
+    public HubEventType getType() {
+        return HubEventType.DEVICE_REMOVED;
     }
 }
-

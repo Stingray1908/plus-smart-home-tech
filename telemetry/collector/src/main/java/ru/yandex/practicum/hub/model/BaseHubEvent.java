@@ -4,6 +4,10 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import lombok.Getter;
 import lombok.Setter;
+import ru.yandex.practicum.hub.enums.HubEventType;
+import ru.yandex.practicum.sensor.enums.SensorEventType;
+
+import java.time.Instant;
 
 @JsonTypeInfo(
         use = JsonTypeInfo.Id.NAME,
@@ -20,7 +24,9 @@ import lombok.Setter;
 @Setter
 public abstract class BaseHubEvent {
     private String hubId;
-    private String timestamp;
+    private Instant timestamp;
     private String type;
+
+    public abstract HubEventType getType();
 }
 

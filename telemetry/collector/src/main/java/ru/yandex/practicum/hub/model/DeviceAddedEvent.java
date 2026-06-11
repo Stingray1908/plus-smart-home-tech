@@ -1,14 +1,19 @@
+
 package ru.yandex.practicum.hub.model;
 
+import lombok.Getter;
+import lombok.Setter;
+import ru.yandex.practicum.hub.enums.DeviceType;
+import ru.yandex.practicum.hub.enums.HubEventType;
+
+@Getter
+@Setter
 public class DeviceAddedEvent extends BaseHubEvent {
     private String id;
-    private String deviceType;
+    private DeviceType deviceType;
 
-    // геттеры и сеттеры
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
-
-    public String getDeviceType() { return deviceType; }
-    public void setDeviceType(String deviceType) { this.deviceType = deviceType; }
+    @Override
+    public HubEventType getType() {
+        return HubEventType.DEVICE_ADDED;
+    }
 }
-

@@ -32,7 +32,7 @@ public abstract class SensorEvent {
     private String id;
     @NotBlank
     private String hubId;
-    private Instant timestamp = Instant.now();
+    private Instant timestamp;
 
     public SensorEvent(String id, String hubId) {
         this.id = id;
