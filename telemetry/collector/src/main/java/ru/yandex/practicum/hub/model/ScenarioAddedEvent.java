@@ -2,13 +2,15 @@ package ru.yandex.practicum.hub.model;
 
 import lombok.Getter;
 import lombok.Setter;
+import lombok.ToString;
 import ru.yandex.practicum.hub.enums.HubEventType;
 
 import java.util.List;
 
 @Getter
 @Setter
-public class ScenarioAddedEvent extends BaseHubEvent {
+@ToString
+public class ScenarioAddedEvent extends HubEvent {
     private String name;
     private List<ScenarioCondition> conditions;
     private List<DeviceAction> actions;

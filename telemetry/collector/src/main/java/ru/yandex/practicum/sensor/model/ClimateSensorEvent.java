@@ -8,7 +8,6 @@ import ru.yandex.practicum.sensor.enums.SensorEventType;
 @Setter
 @Getter
 @ToString
-
 public class ClimateSensorEvent extends SensorEvent {
     private int temperatureC;
     private int humidity;

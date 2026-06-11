@@ -8,7 +8,6 @@ import ru.yandex.practicum.sensor.enums.SensorEventType;
 @Setter
 @Getter
 @ToString
-
 public class MotionSensorEvent extends SensorEvent {
     private int linkQuality;
     private boolean motion;

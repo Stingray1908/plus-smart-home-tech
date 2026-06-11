@@ -4,8 +4,11 @@ import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.*;
-import ru.yandex.practicum.hub.model.BaseHubEvent;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import ru.yandex.practicum.hub.model.HubEvent;
 
 @RestController
 @RequestMapping("/events/hubs")
@@ -13,9 +16,9 @@ import ru.yandex.practicum.hub.model.BaseHubEvent;
 @Validated
 public class HubEventController {
 
-    private final HubEventService hubEventService;
+    private final HubEventServiceImpl hubEventService;
 
-    public HubEventController(HubEventService hubEventService) {
+    public HubEventController(HubEventServiceImpl hubEventService) {
         this.hubEventService = hubEventService;
     }
 
@@ -27,7 +30,7 @@ public class HubEventController {
      */
     @PostMapping
     public ResponseEntity<Void> handleHubEvent(
-            @RequestBody @Valid BaseHubEvent hubEvent) {
+            @RequestBody @Valid HubEvent hubEvent) {
 
         log.info("Получено событие хаба: type={}, hubId={}",
                 hubEvent.getType(), hubEvent.getHubId());
