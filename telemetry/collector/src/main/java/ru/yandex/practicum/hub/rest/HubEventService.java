@@ -100,7 +100,7 @@ public class HubEventService {
         return ScenarioConditionAvro.newBuilder()
                 .setSensorId(condition.getSensorId())
                 .setType(ConditionTypeAvro.valueOf(condition.getType().name()))
-                .setOperation(ConditionOperationAvro.valueOf(condition.getOperation().getValue()))
+                .setOperation(ConditionOperationAvro.valueOf(condition.getOperation().name()))
                 .setValue(value)
                 .build();
     }
