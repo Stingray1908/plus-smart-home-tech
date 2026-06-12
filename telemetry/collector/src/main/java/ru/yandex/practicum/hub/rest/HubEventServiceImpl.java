@@ -1,30 +1,36 @@
 package ru.yandex.practicum.hub.rest;
 
+import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.avro.specific.SpecificRecordBase;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import ru.yandex.practicum.config.KafkaProperties;
 import ru.yandex.practicum.hub.enums.HubEventType;
 import ru.yandex.practicum.hub.model.*;
 import ru.yandex.practicum.kafka.telemetry.event.*;
 
 import java.util.List;
-import java.util.Properties;
 import java.util.stream.Collectors;
 
+@NoArgsConstructor
 @Service
 @Slf4j
 public class HubEventServiceImpl implements HubEventService {
 
-    private final KafkaProducer<String, SpecificRecordBase> producer;
-    private final Properties kafkaProperties;
+    private KafkaProducer<String, SpecificRecordBase> producer;
+    private KafkaProperties kafkaProperties;
 
-    public HubEventServiceImpl(KafkaProducer<String, SpecificRecordBase> producer, Properties kafkaProperties) {
+    @Autowired
+    public HubEventServiceImpl(
+            KafkaProducer<String, SpecificRecordBase> producer,
+            KafkaProperties kafkaProperties) {
         this.producer = producer;
         this.kafkaProperties = kafkaProperties;
     }
-
+    @Override
     public void processHubEvent(HubEvent event) {
         HubEventType eventType = event.getType();
         Object payload;
@@ -43,9 +49,8 @@ public class HubEventServiceImpl implements HubEventService {
                 .setPayload(payload)
                 .build();
 
-        String hubTopic = kafkaProperties.getProperty("kafka.topic.hub.events");
         ProducerRecord<String, SpecificRecordBase> record =
-                new ProducerRecord<>(hubTopic, event.getHubId(), hubEventAvro);
+                new ProducerRecord<>(kafkaProperties.getTopic().getHubEvents(), event.getHubId(), hubEventAvro);
 
         producer.send(record, (metadata, exception) -> {
             if (exception != null) {

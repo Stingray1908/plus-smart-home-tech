@@ -1,6 +1,7 @@
 package ru.yandex.practicum.sensor.rest;
 
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -9,15 +10,12 @@ import ru.yandex.practicum.sensor.model.SensorEvent;
 
 @RestController
 @RequestMapping("/events")
+@RequiredArgsConstructor
 @Slf4j
 @Validated
 public class SensorEventController {
 
     private final SensorEventService sensorEventService;
-
-    public SensorEventController(SensorEventService sensorEventService) {
-        this.sensorEventService = sensorEventService;
-    }
 
     /**
      * Эндпоинт для обработки событий от датчиков

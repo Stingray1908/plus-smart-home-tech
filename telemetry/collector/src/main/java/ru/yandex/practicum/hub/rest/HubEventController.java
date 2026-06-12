@@ -1,6 +1,7 @@
 package ru.yandex.practicum.hub.rest;
 
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -12,15 +13,12 @@ import ru.yandex.practicum.hub.model.HubEvent;
 
 @RestController
 @RequestMapping("/events/hubs")
+@RequiredArgsConstructor
 @Slf4j
 @Validated
 public class HubEventController {
 
     private final HubEventServiceImpl hubEventService;
-
-    public HubEventController(HubEventServiceImpl hubEventService) {
-        this.hubEventService = hubEventService;
-    }
 
     /**
      * Эндпоинт для обработки событий от хаба

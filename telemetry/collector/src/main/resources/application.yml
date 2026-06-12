@@ -1,0 +1,11 @@
+kafka:
+  bootstrap-servers: localhost:9092
+  topic:
+    hubEvents: telemetry.hubs.v1
+    sensorEvents: telemetry.sensors.v1
+  producer:
+    acks: 1
+    retries: 3
+    batch-size: 16384
+    key-serializer: org.apache.kafka.common.serialization.StringSerializer
+    value-serializer: ru.yandex.practicum.config.EventAvroSerializer
