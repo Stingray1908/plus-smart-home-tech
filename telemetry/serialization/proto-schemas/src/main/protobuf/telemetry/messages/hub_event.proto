@@ -1,6 +1,59 @@
 syntax = "proto3";
 
-package telemetry.message.event;
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+package telemetry.messages.event;
 
 option java_multiple_files = true;
 option java_package = "ru.yandex.practicum.grpc.telemetry.event";
+
+message HubEventProto {
+  string hub_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  oneof payload {
+    DeviceAddedEventProto device_added = 3;
+    DeviceRemovedEventProto device_removed = 4;
+    ScenarioAddedEventProto scenario_added = 5;
+    ScenarioRemovedEventProto scenario_removed = 6;
+  }
+}
+
+enum DeviceTypeProto {
+  MOTION_SENSOR = 0;
+  TEMPERATURE_SENSOR = 1;
+  LIGHT_SENSOR = 2;
+  CLIMATE_SENSOR = 3;
+  SWITCH_SENSOR = 4;
+}
+
+message DeviceAddedEventProto {
+  string id = 1;
+  DeviceTypeProto type = 2;
+}
+
+message DeviceRemovedEventProto {
+  string id = 1;
+}
+
+message ScenarioAddedEventProto {
+  string id = 1;
+}
+
+message ScenarioRemovedEventProto {
+  string id = 1;
+}
+
+message SensorEventProto {
+  string id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string hubId = 3;
+}
+
+service CollectorController {
+  rpc CollectSensorEvent (SensorEventProto)
+      returns (google.protobuf.Empty);
+
+  rpc CollectHubEvent (HubEventProto)
+      returns (google.protobuf.Empty);
+}
