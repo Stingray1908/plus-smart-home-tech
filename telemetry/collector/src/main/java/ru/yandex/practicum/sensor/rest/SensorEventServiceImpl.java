@@ -1,7 +1,6 @@
     package ru.yandex.practicum.sensor.rest;
 
     import lombok.NoArgsConstructor;
-    import lombok.RequiredArgsConstructor;
     import lombok.extern.slf4j.Slf4j;
     import org.apache.avro.specific.SpecificRecordBase;
     import org.apache.kafka.clients.producer.KafkaProducer;

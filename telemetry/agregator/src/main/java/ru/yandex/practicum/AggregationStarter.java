@@ -8,7 +8,7 @@ import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.errors.WakeupException;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -17,26 +17,25 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+import ru.yandex.practicum.config.KafkaProperties;
 import ru.yandex.practicum.kafka.telemetry.event.*;
 
 @Slf4j
 @Component
 public class AggregationStarter {
-
-    private final KafkaConsumer<String, SensorEventAvro> consumer;
-    // ИСПРАВЛЕНИЕ: используем SpecificRecordBase, чтобы совпасть с бином из KafkaConfig
-    private final KafkaProducer<String, SpecificRecordBase> producer;
-    private final String snapshotTopic = "telemetry.snapshots.v1";
-
-    // Хранилище снапшотов: hubId -> snapshot
+    private KafkaConsumer<String, SensorEventAvro> consumer;
+    private KafkaProducer<String, SpecificRecordBase> producer;
     private final Map<String, SensorsSnapshotAvro> snapshots = new ConcurrentHashMap<>();
+    private String snapshotTopic;
 
+    @Autowired
     public AggregationStarter(
             KafkaConsumer<String, SensorEventAvro> consumer,
-            // ИСПРАВЛЕНИЕ: просим бин именно с SpecificRecordBase
-            KafkaProducer<String, SpecificRecordBase> producer) {
+            KafkaProducer<String, SpecificRecordBase> producer,
+            KafkaProperties kafkaProperties) {
         this.consumer = consumer;
         this.producer = producer;
+        this.snapshotTopic = kafkaProperties.getTopic().getSnapshots();
     }
 
     public void start() {
