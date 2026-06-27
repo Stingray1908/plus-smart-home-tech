@@ -13,7 +13,7 @@ import lombok.AllArgsConstructor;
 public class Hub {
     @Id
     @Column(name = "hub_id", length = 64)
-    private String hubId;
+    private String id; // переименовали в id
 
     @Column(name = "location")
     private String location;

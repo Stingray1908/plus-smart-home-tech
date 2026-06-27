@@ -1,13 +1,16 @@
 spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/postgres
-    username: postgres
-    password: password
-    driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: validate
-    show-sql: true
+      ddl-auto: none          # отключаем автогенерацию схемы, чтобы не ломать руками созданное
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
+  datasource:
+    url: jdbc:postgresql://localhost:5432/smart_home_db
+    username: postgres
+    password: password
+  sql:
+    init:
+      mode: always            # всегда выполнять schema.sql при старте
+      schema: classpath:schema.sql
+      continue-on-error: false
