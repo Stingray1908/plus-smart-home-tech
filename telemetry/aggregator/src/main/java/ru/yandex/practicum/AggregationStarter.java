@@ -75,14 +75,13 @@ public class AggregationStarter {
         SensorsSnapshotAvro snapshot = snapshots.computeIfAbsent(hubId, id -> {
             SensorsSnapshotAvro s = new SensorsSnapshotAvro();
             s.setHubId(id);
-            // Конвертируем Instant -> long (millis)
+
             Instant ts = Instant.now();
             s.setTimestamp(ts);
             s.setSensorsState(new ConcurrentHashMap<>());
             return s;
         });
 
-        // Конвертируем event.timestamp (long) -> Instant для сравнения
         Instant eventInstant = Instant.ofEpochMilli(event.getTimestamp());
         Instant snapInstant = snapshot.getTimestamp();
 
@@ -102,7 +101,7 @@ public class AggregationStarter {
         }
 
         SensorStateAvro newState = new SensorStateAvro();
-        newState.setTimestamp(Instant.ofEpochMilli(event.getTimestamp())); // long
+        newState.setTimestamp(Instant.ofEpochMilli(event.getTimestamp()));
 
         Object payload = event.getPayload().getPayload();
         if (payload instanceof ClimateSensorAvro) {
