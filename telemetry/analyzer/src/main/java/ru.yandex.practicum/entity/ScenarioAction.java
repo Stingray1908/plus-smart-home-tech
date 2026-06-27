@@ -32,17 +32,3 @@ public class ScenarioAction {
     private Action action;
 }
 
-@Embeddable
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-class ScenarioActionId implements Serializable {
-    @Column(name = "scenario_id")
-    private Long scenarioId;
-
-    @Column(name = "sensor_id", length = 64)
-    private String sensorId;
-
-    @Column(name = "action_id")
-    private Long actionId;
-}
