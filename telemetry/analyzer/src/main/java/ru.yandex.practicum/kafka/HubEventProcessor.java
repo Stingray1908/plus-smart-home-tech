@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import ru.yandex.practicum.kafka.telemetry.event.*;
 
 import java.time.Duration;
+import java.util.Collections;
 
 @Getter
 @Slf4j
@@ -16,11 +17,12 @@ import java.time.Duration;
 public class HubEventProcessor implements Runnable {
 
     private final KafkaConsumer<String, HubEventAvro> consumer;
-    private final JdbcTemplate jdbcTemplate; // Нужен для работы с БД
+    private final JdbcTemplate jdbcTemplate;
 
     public HubEventProcessor(KafkaConsumer<String, HubEventAvro> consumer, JdbcTemplate jdbcTemplate) {
         this.consumer = consumer;
         this.jdbcTemplate = jdbcTemplate;
+        this.consumer.subscribe(Collections.singletonList("telemetry.hubs.v1"));
     }
 
     @Override

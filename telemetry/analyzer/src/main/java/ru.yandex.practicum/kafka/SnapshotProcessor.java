@@ -10,6 +10,7 @@ import ru.yandex.practicum.SnapshotAnalyzer;
 import ru.yandex.practicum.kafka.telemetry.event.SensorsSnapshotAvro;
 
 import java.time.Duration;
+import java.util.Collections;
 
 @Getter
 @Slf4j
@@ -23,6 +24,7 @@ public class SnapshotProcessor implements Runnable {
                              SnapshotAnalyzer analyzer) {
         this.consumer = consumer;
         this.analyzer = analyzer;
+        this.consumer.subscribe(Collections.singletonList("telemetry.snapshots.v1"));
     }
 
     @Override
