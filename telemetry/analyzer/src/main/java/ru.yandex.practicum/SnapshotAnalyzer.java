@@ -33,7 +33,7 @@ public class SnapshotAnalyzer {
     }
 
     public void processSnapshot(SensorsSnapshotAvro snapshot) {
-        Long hubId = Long.valueOf(snapshot.getHubId());
+        String hubId = snapshot.getHubId();
         if (hubId == null || snapshot.getSensorsState() == null) {
             log.warn("Invalid snapshot: hubId={}, sensorsState={}", hubId, snapshot.getSensorsState());
             return;
