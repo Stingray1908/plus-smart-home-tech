@@ -132,18 +132,16 @@ public class SnapshotAnalyzer {
             return l.getLuminosity();
         }
 
-        // MotionSensorAvro: у него нет одного "значения".
-        // Для примера используем link_quality. Если нужна другая логика — скажи.
         else if (data instanceof MotionSensorAvro m) {
-            return m.getLinkQuality();
+            // Если motion == true (движение есть) -> возвращаем 1
+            // Если motion == false (движения нет) -> возвращаем 0
+            return m.getMotion() ? 1 : 0;
         }
 
-        // SwitchSensorAvro: это boolean state.
-        // Его нельзя напрямую сравнить с int threshold в текущей логике.
-        // Возвращаем null, чтобы условие не сработало.
+        // SwitchSensorAvro (выключатель/реле): state (boolean)
         else if (data instanceof SwitchSensorAvro s) {
-            log.debug("Cannot compare SwitchSensor state (boolean) with numeric threshold");
-            return null;
+            // true (включено) -> 1, false (выключено) -> 0
+            return s.getState() ? 1 : 0;
         }
 
         log.debug("Unsupported sensor type for numeric extraction: {}", data.getClass().getSimpleName());
