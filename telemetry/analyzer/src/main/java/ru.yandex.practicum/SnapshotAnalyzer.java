@@ -51,8 +51,8 @@ public class SnapshotAnalyzer {
         List<Scenario> scenarios = scenarioRepository.findByHubId(hubId);
 
         for (Scenario scenario : scenarios) {
-            List<ScenarioCondition> conditions = getConditionsForScenario(scenario.getId());
-            List<ScenarioAction> actions = getActionsForScenario(scenario.getId());
+            List<ScenarioCondition> conditions = scenario.getConditions();
+            List<ScenarioAction> actions = scenario.getActions();
 
             if (conditions.isEmpty()) {
                 log.debug("Scenario {} has no conditions, skipping.", scenario.getName());
