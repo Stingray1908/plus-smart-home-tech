@@ -73,7 +73,7 @@ public class KafkaConfig {
 
 
     @Bean
-    public KafkaProducer<String, SpecificRecordBase> kafkaProducer() {
+    public KafkaProducer<String, SensorsSnapshotAvro> kafkaProducer() {
         Properties props = new Properties();
 
         String bootstrapServers = kafkaProperties.getBootstrapServers();
