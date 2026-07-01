@@ -2,9 +2,6 @@ spring:
   jpa:
     hibernate:
       ddl-auto: none          # отключаем автогенерацию схемы, чтобы не ломать руками созданное
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
   datasource:
     url: jdbc:postgresql://localhost:5432/smart_home_db
     username: postgres
@@ -24,3 +21,9 @@ grpc:
       enableKeepAlive: true
       keepAliveWithoutCalls: true
       negotiationType: plaintext
+
+logging:
+  level:
+    ru:
+      yandex:
+        practicum=DEBUG:

@@ -2,6 +2,7 @@ package ru.yandex.practicum.kafka;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.errors.WakeupException;
@@ -20,41 +21,62 @@ import java.util.Collections;
 @Component
 public class HubEventProcessor implements Runnable {
 
-    private final KafkaConsumer<String, HubEventAvro> consumer;
+    private final Consumer<String, HubEventAvro> consumer;
     private final HubRepository hubRepository;
     private final SensorRepository sensorRepository;
 
     public HubEventProcessor(
-            KafkaConsumer<String, HubEventAvro> consumer,
+            Consumer<String, HubEventAvro> consumer,
             HubRepository hubRepository,
             SensorRepository sensorRepository
     ) {
         this.consumer = consumer;
         this.hubRepository = hubRepository;
         this.sensorRepository = sensorRepository;
-        this.consumer.subscribe(Collections.singletonList("telemetry.hubs.v1"));
     }
 
     @Override
     public void run() {
-        log.info("HubEventProcessor started");
+        log.info("{} started. Group ID: {}, Topics: {}",
+                this.getClass().getSimpleName(),
+                // можно вытащить group.id из consumer.metrics() или просто захардкодить для отладки
+                "analyzer-hub-events-group", // подставь свой
+                "telemetry.hubs.v1");        // подставь свои топики
+
         try {
+            // подписка (если она осталась у тебя в конструкторе — лучше убрать, см. ниже)
             while (true) {
-                var records = consumer.poll(Duration.ofSeconds(5));
-                if (records.isEmpty()) continue;
+                var records = consumer.poll(java.time.Duration.ofSeconds(5));
+                if (records.isEmpty()) {
+                    log.trace("No new records, continuing poll...");
+                    continue;
+                }
+
+                log.info("Polled {} records from topic {}, partitions: {}",
+                        records.count(),
+                        records.partitions().stream().findFirst().map(tp -> tp.topic()).orElse("unknown"),
+                        records.partitions());
 
                 boolean allProcessedSuccessfully = true;
-                for (var record : records) {
-                    HubEventAvro event = record.value();
-                    if (event == null) continue;
 
+                for (var record : records) {
                     try {
-                        processEvent(event);
-                        log.debug("Processed hub event, hubId={}", event.getHubId());
+                        log.debug("Processing record: offset={}, partition={}, key={}",
+                                record.offset(), record.partition(), record.key());
+
+                        processEvent(record.value()); // или processSnapshot(record.value())
+
+                        log.debug("Record processed: offset={}", record.offset());
                     } catch (Exception e) {
                         allProcessedSuccessfully = false;
-                        log.error("Failed to process hub event at offset {} partition {}. Will retry on next poll.",
-                                record.offset(), record.partition(), e);
+                        // ВОТ ЭТО САМОЕ ВАЖНОЕ:
+                        log.error("Failed to process record at offset {} partition {}. " +
+                                        "Key={}, Value class={}, Stack trace follows:",
+                                record.offset(),
+                                record.partition(),
+                                record.key(),
+                                record.value() != null ? record.value().getClass().getName() : "null",
+                                e);
                     }
                 }
 
@@ -63,20 +85,25 @@ public class HubEventProcessor implements Runnable {
                         if (e != null) {
                             log.error("Async commit failed", e);
                         } else {
-                            log.trace("Offsets committed asynchronously");
+                            log.trace("Offsets committed");
                         }
                     });
                 } else {
-                    log.warn("Batch contained errors. Offsets NOT committed. Retrying on next iteration.");
+                    log.warn("Batch had errors. Offsets NOT committed. Will retry on next poll.");
                 }
             }
         } catch (WakeupException e) {
-            log.info("HubEventProcessor received shutdown signal");
+            log.info("Shutdown signal received, stopping {}", this.getClass().getSimpleName());
         } finally {
-            consumer.close();
-            log.info("HubEventProcessor closed");
+            try {
+                consumer.close();
+                log.info("Consumer closed: {}", this.getClass().getSimpleName());
+            } catch (Exception e) {
+                log.error("Error closing consumer", e);
+            }
         }
     }
+
 
     private void processEvent(HubEventAvro event) {
         String hubId = event.getHubId();

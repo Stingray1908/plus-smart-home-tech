@@ -1,6 +1,7 @@
 package ru.yandex.practicum;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -17,22 +18,27 @@ public class Analyzer {
         HubEventProcessor hubEventProcessor = context.getBean(HubEventProcessor.class);
         SnapshotProcessor snapshotProcessor = context.getBean(SnapshotProcessor.class);
 
-        KafkaConsumer<?, ?> snapshotConsumer = snapshotProcessor.getConsumer(); // если нужен геттер
-        KafkaConsumer<?, ?> hubEventConsumer = hubEventProcessor.getConsumer();
+        Consumer<?, ?> snapshotConsumer = snapshotProcessor.getConsumer();
+        Consumer<?, ?> hubEventConsumer = hubEventProcessor.getConsumer();
 
-        // Shutdown hook
+        log.info("Consumers initialized: snapshot={}, hubEvent={}", snapshotConsumer != null, hubEventConsumer != null);
+        if (snapshotConsumer != null) {
+            log.info("SnapshotConsumer subscribed topics: {}", snapshotConsumer.subscription());
+        }
+        if (hubEventConsumer != null) {
+            log.info("HubEventConsumer subscribed topics: {}", hubEventConsumer.subscription());
+        }
+
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutdown hook triggered. Waking up consumers...");
             if (snapshotConsumer != null) snapshotConsumer.wakeup();
             if (hubEventConsumer != null) hubEventConsumer.wakeup();
         }));
 
-        // HubEventProcessor в отдельном потоке
         Thread hubEventsThread = new Thread(hubEventProcessor);
         hubEventsThread.setName("HubEventHandlerThread");
         hubEventsThread.start();
 
-        // SnapshotProcessor тоже в отдельном потоке (чтобы не блокировать main)
         Thread snapshotThread = new Thread(snapshotProcessor);
         snapshotThread.setName("SnapshotProcessorThread");
         snapshotThread.start();
