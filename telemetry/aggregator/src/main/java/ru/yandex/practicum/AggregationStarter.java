@@ -13,6 +13,8 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,40 +25,56 @@ import ru.yandex.practicum.kafka.telemetry.event.*;
 @Slf4j
 @Component
 public class AggregationStarter {
+
     private KafkaConsumer<String, SensorEventAvro> consumer;
-    private KafkaProducer<String, SpecificRecordBase> producer;
+    private KafkaProducer<String, SensorsSnapshotAvro > producer;
+    // Храним снапшоты по hubId. Важно: это кэш текущего состояния, НЕ то, что мы отправляем.
     private final Map<String, SensorsSnapshotAvro> snapshots = new ConcurrentHashMap<>();
-    private String snapshotTopic;
+    private final String snapshotTopic;
+    private final KafkaProperties kafkaProperties;
 
     @Autowired
     public AggregationStarter(
             KafkaConsumer<String, SensorEventAvro> consumer,
-            KafkaProducer<String, SpecificRecordBase> producer,
+            KafkaProducer<String, SensorsSnapshotAvro > producer,
             KafkaProperties kafkaProperties) {
         this.consumer = consumer;
         this.producer = producer;
+        this.kafkaProperties = kafkaProperties;
         this.snapshotTopic = kafkaProperties.getTopic().getSnapshots();
     }
 
     public void start() {
+        consumer.subscribe(Collections.singletonList(
+                kafkaProperties.getTopic().getSensorEvents() != null
+                        ? kafkaProperties.getTopic().getSensorEvents()
+                        : "telemetry.sensors.v1"
+        ));
+
         try {
             while (true) {
                 ConsumerRecords<String, SensorEventAvro> records = consumer.poll(Duration.ofSeconds(5));
-
                 for (ConsumerRecord<String, SensorEventAvro> record : records) {
                     Optional<SensorsSnapshotAvro> updated = updateState(record.value());
                     if (updated.isPresent()) {
-                        SensorsSnapshotAvro snapshot = updated.get();
-                        // Приводим к SpecificRecordBase при отправке — это нормально
-                        var pr = new ProducerRecord<>(snapshotTopic, snapshot.getHubId(), (SpecificRecordBase) snapshot);
+                        SensorsSnapshotAvro currentSnapshot = updated.get();
+
+                        // ВАЖНО: делаем копию снапшота для отправки, чтобы не мутировать кэш
+                        SensorsSnapshotAvro sendSnapshot = new SensorsSnapshotAvro();
+                        sendSnapshot.setHubId(currentSnapshot.getHubId());
+                        sendSnapshot.setTimestamp(currentSnapshot.getTimestamp());
+
+                        Map<String, SensorStateAvro> copiedStates = new HashMap<>(currentSnapshot.getSensorsState());
+                        sendSnapshot.setSensorsState(copiedStates);
+
+                        var pr = new ProducerRecord<>(snapshotTopic, sendSnapshot.getHubId(), sendSnapshot);
                         producer.send(pr, (metadata, exception) -> {
                             if (exception != null) {
-                                log.error("Failed to send snapshot for hubId={}", snapshot.getHubId(), exception);
+                                log.error("Failed to send snapshot for hubId={}", sendSnapshot.getHubId(), exception);
                             }
                         });
                     }
                 }
-
                 consumer.commitSync();
             }
         } catch (WakeupException ignored) {
@@ -72,54 +90,70 @@ public class AggregationStarter {
 
     private Optional<SensorsSnapshotAvro> updateState(SensorEventAvro event) {
         String hubId = event.getHubId();
+        long eventTsLong = event.getTimestamp(); // long из события
+        Instant eventTs = Instant.ofEpochMilli(eventTsLong); // конвертируем в Instant для Avro
+        String deviceId = event.getId();
+
         SensorsSnapshotAvro snapshot = snapshots.computeIfAbsent(hubId, id -> {
             SensorsSnapshotAvro s = new SensorsSnapshotAvro();
             s.setHubId(id);
-
-            Instant ts = Instant.now();
-            s.setTimestamp(ts);
-            s.setSensorsState(new ConcurrentHashMap<>());
+            s.setTimestamp(eventTs); // Instant
+            s.setSensorsState(new HashMap<>());
             return s;
         });
 
-        Instant eventInstant = Instant.ofEpochMilli(event.getTimestamp());
-        Instant snapInstant = snapshot.getTimestamp();
-
-        if (eventInstant.isAfter(snapInstant)) {
-            snapshot.setTimestamp(Instant.ofEpochMilli(event.getTimestamp())); // пишем обратно long
+        // Обновляем timestamp только если новое событие новее
+        if (eventTs.isAfter(snapshot.getTimestamp())) {
+            snapshot.setTimestamp(eventTs);
         }
 
         Map<String, SensorStateAvro> states = snapshot.getSensorsState();
-        String deviceId = event.getId();
-
         SensorStateAvro oldState = states.get(deviceId);
-        if (oldState != null) {
-            Instant oldInstant = oldState.getTimestamp();
-            if (!eventInstant.isAfter(oldInstant)) {
-                return Optional.empty();
-            }
-        }
 
         SensorStateAvro newState = new SensorStateAvro();
-        newState.setTimestamp(Instant.ofEpochMilli(event.getTimestamp()));
+        newState.setTimestamp(eventTs); // Instant
 
-        Object payload = event.getPayload().getPayload();
-        if (payload instanceof ClimateSensorAvro) {
-            newState.setData((ClimateSensorAvro) payload);
-        } else if (payload instanceof LightSensorAvro) {
-            newState.setData((LightSensorAvro) payload);
-        } else if (payload instanceof MotionSensorAvro) {
-            newState.setData((MotionSensorAvro) payload);
-        } else if (payload instanceof SwitchSensorAvro) {
-            newState.setData((SwitchSensorAvro) payload);
-        } else if (payload instanceof TemperatureSensorAvro) {
-            newState.setData((TemperatureSensorAvro) payload);
+        Object payloadObj = event.getPayload().getPayload();
+        if (payloadObj instanceof ClimateSensorAvro) {
+            newState.setData((ClimateSensorAvro) payloadObj);
+        } else if (payloadObj instanceof LightSensorAvro) {
+            newState.setData((LightSensorAvro) payloadObj);
+        } else if (payloadObj instanceof MotionSensorAvro) {
+            newState.setData((MotionSensorAvro) payloadObj);
+        } else if (payloadObj instanceof SwitchSensorAvro) {
+            newState.setData((SwitchSensorAvro) payloadObj);
+        } else if (payloadObj instanceof TemperatureSensorAvro) {
+            newState.setData((TemperatureSensorAvro) payloadObj);
         } else {
             log.warn("Unknown payload type for deviceId={}, hubId={}", deviceId, hubId);
             return Optional.empty();
         }
 
+        boolean stateChanged = false;
+
+        if (oldState == null) {
+            stateChanged = true;
+        } else {
+            Instant oldTs = oldState.getTimestamp();
+            if (eventTs.isAfter(oldTs)) {
+                stateChanged = true;
+            } else if (eventTs.equals(oldTs)) {
+                // Если время одинаковое, проверяем, изменились ли сами данные
+                if (!dataEquals(oldState.getData(), newState.getData())) {
+                    stateChanged = true;
+                }
+            }
+            // Если eventTs раньше oldTs — игнорируем (старое событие)
+        }
+
         states.put(deviceId, newState);
-        return Optional.of(snapshot);
+
+        return stateChanged ? Optional.of(snapshot) : Optional.empty();
+    }
+
+    private boolean dataEquals(Object a, Object b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return a.equals(b);
     }
 }

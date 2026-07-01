@@ -1,7 +1,7 @@
 kafka:
   bootstrap-servers: localhost:9092
 
-  topics:
+  topic:
     sensorEvents: telemetry.sensors.v1
     snapshots: telemetry.snapshots.v1
 
@@ -20,3 +20,6 @@ kafka:
     batch-size: 16384
     key-serializer: org.apache.kafka.common.serialization.StringSerializer
     value-serializer: ru.yandex.practicum.config.EventAvroSerializer
+
+server:
+  port: 8081
