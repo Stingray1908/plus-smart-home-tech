@@ -11,6 +11,7 @@ spring:
       mode: always            # всегда выполнять schema.sql при старте
       schema: classpath:schema.sql
       continue-on-error: false
+
 server:
   port: 8082
 

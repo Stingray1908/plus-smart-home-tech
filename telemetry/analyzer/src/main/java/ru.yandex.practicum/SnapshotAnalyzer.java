@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.client.inject.GrpcClient;
 import org.springframework.stereotype.Service;
 
+import org.springframework.transaction.annotation.Transactional;
 import ru.yandex.practicum.entity.*;
 import ru.yandex.practicum.enums.Operation;
 import ru.yandex.practicum.grpc.telemetry.event.ActionTypeProto;
@@ -33,33 +34,20 @@ public class SnapshotAnalyzer {
         log.info("🟢 SnapshotAnalyzer initialized. gRPC stub created (non-null? {})", hubRouterClient != null);
     }
 
+    @Transactional(readOnly = true)
     public void processSnapshot(SensorsSnapshotAvro snapshot) {
         String hubId = snapshot.getHubId();
-
-        if (hubId == null) {
-            log.error("🔴 INVALID SNAPSHOT: hubId is NULL! Skipping.");
-            return;
-        }
-        var sensorsState = snapshot.getSensorsState();
-        if (sensorsState == null || sensorsState.isEmpty()) {
-            log.warn("🟡 INVALID SNAPSHOT: sensorsState is null or empty for hub={}. Skipping.", hubId);
-            return;
-        }
-
         log.info("🎯 START Processing snapshot for hub: {}", hubId);
 
-        List<Scenario> scenarios = scenarioRepository.findByHubId(hubId);
-        if (scenarios == null || scenarios.isEmpty()) {
-            log.error("🔴 NO SCENARIOS: No scenarios found for hub={}. Check DB.", hubId);
-            return;
-        }
-
+        // Теперь conditions уже загружены (JOIN FETCH), LazyInitialization не будет
+        List<Scenario> scenarios = scenarioRepository.findByHubWithConditions(hubId);
         log.info("✅ FOUND {} scenarios for hub={}", scenarios.size(), hubId);
 
         long scenariosWithConditions = scenarios.stream()
-                .filter(s -> s.getConditions() != null && !s.getConditions().isEmpty())
+                .filter(s -> !s.getConditions().isEmpty())
                 .count();
-        log.info("📋 {} out of {} scenarios have non-empty conditions.", scenariosWithConditions, scenarios.size());
+
+        log.info("Processed snapshot: hub={}, scenarios with conditions={}", hubId, scenariosWithConditions);
 
         if (scenariosWithConditions == 0) {
             log.error("🔴 EMPTY CONDITIONS: All scenarios for hub={} have no conditions.", hubId);
@@ -126,22 +114,25 @@ public class SnapshotAnalyzer {
 
     private Operation parseOperation(String opStr) {
         if (opStr == null || opStr.isBlank()) return null;
+        String s = opStr.trim();
 
-        switch (opStr.trim().toLowerCase()) {
-            case "<":
-            case "lt":
-                return Operation.LT;
-            case ">":
-            case "gt":
-                return Operation.GT;
-            case "==":
-            case "=":
-            case "eq":
+        switch (s) {
+            case "==", "=", "EQUALS" -> {
                 return Operation.EQ;
-            default:
+            }
+            case ">", "GREATER_THAN" -> {
+                return Operation.GT;
+            }
+            case "<", "LOWER_THAN" -> {
+                return Operation.LT;
+            }
+            default -> {
+                log.warn("⚠️ Unknown operation string: '{}'", opStr);
                 return null;
+            }
         }
     }
+
 
     private boolean evaluateCondition(Operation op, int current, Object thresholdObj) {
         Integer threshold;
