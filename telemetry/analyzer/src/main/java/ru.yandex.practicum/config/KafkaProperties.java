@@ -2,7 +2,6 @@ package ru.yandex.practicum.config;
 
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import java.util.Map;
 
 @Data
 @ConfigurationProperties(prefix = "kafka")
@@ -24,10 +23,26 @@ public class KafkaProperties {
 
     @Data
     public static class Consumer {
-        private String keyDeserializer;
-        private String valueDeserializer;
-        private int maxPollIntervalMs = 300000;      // 5 минут
-        private int sessionTimeoutMs = 45000;       // 45 секунд
+        private String autoOffsetReset = "earliest";
+        private int maxPollIntervalMs = 300000;
+        private int sessionTimeoutMs = 45000;
         private boolean enableAutoCommit = false;
+    }
+
+    // Топики и группы — выносим из кода в конфиг
+    private Topics topics = new Topics();
+    private Groups groups = new Groups();
+
+    @Data
+    public static class Topics {
+        private String sensorEvents;
+        private String snapshots;
+        private String hubs;
+    }
+
+    @Data
+    public static class Groups {
+        private String snapshotGroup = "analyzer-snapshots-group";
+        private String hubEventsGroup = "analyzer-hub-events-group";
     }
 }
