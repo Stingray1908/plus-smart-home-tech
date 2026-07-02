@@ -24,9 +24,9 @@ public class KafkaProperties {
     @Getter
     @Setter
     public static class Producer {
-        private String acks;
-        private String retries;
-        private String batchSize;
+        private int acks;
+        private int retries;
+        private int batchSize;
         private String keySerializer;
         private String valueSerializer;
     }

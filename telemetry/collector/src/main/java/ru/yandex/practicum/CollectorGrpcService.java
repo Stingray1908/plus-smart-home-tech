@@ -25,13 +25,10 @@ import java.util.stream.Collectors;
 public class CollectorGrpcService extends CollectorControllerGrpc.CollectorControllerImplBase {
 
     private static final Logger log = LoggerFactory.getLogger(CollectorGrpcService.class);
-    private static final String SENSORS_TOPIC = "telemetry.sensors.v1";
-    private static final String HUBS_TOPIC = "telemetry.hubs.v1";
 
     private final KafkaProducer<String, SpecificRecordBase> kafkaProducer;
-    // private final KafkaProperties kafkaProperties; // если не нужен — можно убрать
+    private final KafkaProperties kafkaProperties;
 
-    // Этот метод теперь точно соответствует CollectHubEvent из .proto
     @Override
     public void collectHubEvent(HubEventProto request, StreamObserver<Empty> responseObserver) {
         try {
@@ -42,31 +39,19 @@ public class CollectorGrpcService extends CollectorControllerGrpc.CollectorContr
 
             log.info("gRPC collectHubEvent вызван: hubId={}", hubId);
 
-            // Конвертируем google.protobuf.Timestamp в java.time.Instant
             Instant timestamp = Instant.ofEpochSecond(
                     request.getTimestamp().getSeconds(),
                     request.getTimestamp().getNanos()
             );
 
             SpecificRecordBase payloadAvro;
-
             switch (request.getPayloadCase()) {
-                case DEVICE_ADDED:
-                    payloadAvro = convertDeviceAddedEvent(request.getDeviceAdded());
-                    break;
-                case DEVICE_REMOVED:
-                    payloadAvro = convertDeviceRemovedEvent(request.getDeviceRemoved());
-                    break;
-                case SCENARIO_ADDED:
-                    payloadAvro = convertScenarioAddedEvent(request.getScenarioAdded());
-                    break;
-                case SCENARIO_REMOVED:
-                    payloadAvro = convertScenarioRemovedEvent(request.getScenarioRemoved());
-                    break;
-                case PAYLOAD_NOT_SET:
-                    throw new IllegalArgumentException("payload не установлен в HubEventProto");
-                default:
-                    throw new IllegalArgumentException("Неизвестный тип payload: " + request.getPayloadCase());
+                case DEVICE_ADDED -> payloadAvro = convertDeviceAddedEvent(request.getDeviceAdded());
+                case DEVICE_REMOVED -> payloadAvro = convertDeviceRemovedEvent(request.getDeviceRemoved());
+                case SCENARIO_ADDED -> payloadAvro = convertScenarioAddedEvent(request.getScenarioAdded());
+                case SCENARIO_REMOVED -> payloadAvro = convertScenarioRemovedEvent(request.getScenarioRemoved());
+                case PAYLOAD_NOT_SET -> throw new IllegalArgumentException("payload не установлен в HubEventProto");
+                default -> throw new IllegalArgumentException("Неизвестный тип payload: " + request.getPayloadCase());
             }
 
             HubEventAvro hubEventAvro = HubEventAvro.newBuilder()
@@ -75,13 +60,13 @@ public class CollectorGrpcService extends CollectorControllerGrpc.CollectorContr
                     .setPayload(payloadAvro)
                     .build();
 
+            String topic = kafkaProperties.getTopic().getHubEvents();
             ProducerRecord<String, SpecificRecordBase> record =
-                    new ProducerRecord<>(HUBS_TOPIC, hubId, hubEventAvro);
+                    new ProducerRecord<>(topic, hubId, hubEventAvro);
 
             kafkaProducer.send(record, (metadata, exception) -> {
                 if (exception != null) {
                     log.error("Ошибка отправки в Kafka: {}", exception.getMessage(), exception);
-                    // Если нужно, можно как-то сообщить об ошибке клиенту, но gRPC-ответ уже отправлен
                 } else {
                     log.info("Событие хаба отправлено в Kafka: topic={}, partition={}, offset={}",
                             metadata.topic(), metadata.partition(), metadata.offset());
@@ -98,8 +83,6 @@ public class CollectorGrpcService extends CollectorControllerGrpc.CollectorContr
         }
     }
 
-
-    // Этот метод точно соответствует CollectSensorEvent из .proto
     @Override
     public void collectSensorEvent(SensorEventProto request, StreamObserver<Empty> responseObserver) {
         try {
@@ -177,14 +160,16 @@ public class CollectorGrpcService extends CollectorControllerGrpc.CollectorContr
                     .build();
 
             String key = hubId;
-            ProducerRecord<String, SpecificRecordBase> record = new ProducerRecord<>(SENSORS_TOPIC, key, avroEvent);
+
+            String topic = kafkaProperties.getTopic().getSensorEvents();
+            ProducerRecord<String, SpecificRecordBase> record = new ProducerRecord<>(topic, key, avroEvent);
 
             kafkaProducer.send(record, (metadata, exception) -> {
                 if (exception != null) {
-                    log.error("Асинхронная ошибка отправки в Kafka: topic={}, key={}", SENSORS_TOPIC, key, exception);
+                    log.error("Асинхронная ошибка отправки в Kafka: topic={}, key={}", topic, key, exception);
                 } else {
                     log.debug("Отправлено: topic={}, partition={}, offset={}",
-                            SENSORS_TOPIC, metadata.partition(), metadata.offset());
+                            topic, metadata.partition(), metadata.offset());
                 }
             });
 
@@ -263,5 +248,4 @@ public class CollectorGrpcService extends CollectorControllerGrpc.CollectorContr
                 .setValue(value)
                 .build();
     }
-
 }
