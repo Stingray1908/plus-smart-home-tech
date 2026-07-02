@@ -17,97 +17,49 @@ import java.util.Properties;
 @Configuration
 public class KafkaConfig {
 
-    private KafkaProperties kafkaProperties;
+    private final KafkaProperties kafkaProperties;
 
-    @Autowired
     public KafkaConfig(KafkaProperties kafkaProperties) {
         this.kafkaProperties = kafkaProperties;
     }
 
     @Bean
     public KafkaConsumer<String, SensorEventAvro> kafkaConsumer() {
-        Properties props = new Properties();
-        String bootstrapServers = kafkaProperties.getBootstrapServers();
-        if (bootstrapServers == null || bootstrapServers.isBlank()) {
-            bootstrapServers = "localhost:9092";
-        }
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-
-        String groupId = kafkaProperties.getConsumer().getGroupId();
-        if (groupId == null || groupId.isBlank()) {
-            groupId = "smart-home-aggregator-group";
-        }
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
-
+        var props = new Properties();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaProperties.getBootstrapServers());
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, kafkaProperties.getConsumer().getGroupId());
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, SensorEventDeserializer.class.getName());
 
-        String autoOffsetReset = kafkaProperties.getConsumer().getAutoOffsetReset();
-        if (autoOffsetReset == null || autoOffsetReset.isBlank()) {
-            autoOffsetReset = "earliest";
-        }
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, autoOffsetReset);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, kafkaProperties.getConsumer().getAutoOffsetReset());
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, String.valueOf(kafkaProperties.getConsumer().isEnableAutoCommit()));
 
-        boolean enableAutoCommit = kafkaProperties.getConsumer().isEnableAutoCommit();
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, String.valueOf(enableAutoCommit));
+        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG,
+                String.valueOf(kafkaProperties.getConsumer().getMaxPollIntervalMs()));
+        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG,
+                String.valueOf(kafkaProperties.getConsumer().getSessionTimeoutMs()));
 
-        Integer maxPollIntervalMs = kafkaProperties.getConsumer().getMaxPollIntervalMs();
-        if (maxPollIntervalMs == null) maxPollIntervalMs = 300000;
-        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, String.valueOf(maxPollIntervalMs));
-
-        Integer sessionTimeoutMs = kafkaProperties.getConsumer().getSessionTimeoutMs();
-        if (sessionTimeoutMs == null) sessionTimeoutMs = 10000;
-        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, String.valueOf(sessionTimeoutMs));
+        props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG,
+                String.valueOf(kafkaProperties.getConsumer().getFetchMinBytes()));
+        props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG,
+                String.valueOf(kafkaProperties.getConsumer().getFetchMaxWaitMs()));
 
         KafkaConsumer<String, SensorEventAvro> consumer = new KafkaConsumer<>(props);
-
-        // ПОДПИСЫВАЕМСЯ СРАЗУ ПРИ СОЗДАНИИ БИНА
         String topicName = kafkaProperties.getTopic().getSensorEvents();
-        if (topicName == null || topicName.isBlank()) {
-            topicName = "telemetry.sensors.v1";
-        }
         consumer.subscribe(Collections.singletonList(topicName));
-
         return consumer;
     }
 
-
     @Bean
     public KafkaProducer<String, SensorsSnapshotAvro> kafkaProducer() {
-        Properties props = new Properties();
+        var props = new Properties();
+        props.put("bootstrap.servers", kafkaProperties.getBootstrapServers());
+        props.put("key.serializer", kafkaProperties.getProducer().getKeySerializer());
+        props.put("value.serializer", kafkaProperties.getProducer().getValueSerializer());
 
-        String bootstrapServers = kafkaProperties.getBootstrapServers();
-        if (bootstrapServers == null || bootstrapServers.isBlank()) {
-            bootstrapServers = "localhost:9092";
-        }
-        props.put("bootstrap.servers", bootstrapServers);
-
-        String keySerializer = kafkaProperties.getProducer().getKeySerializer();
-        if (keySerializer == null || keySerializer.isBlank()) {
-            keySerializer = "org.apache.kafka.common.serialization.StringSerializer";
-        }
-        props.put("key.serializer", keySerializer);
-
-        String valueSerializer = kafkaProperties.getProducer().getValueSerializer();
-        if (valueSerializer == null || valueSerializer.isBlank()) {
-            valueSerializer = "ru.yandex.practicum.config.EventAvroSerializer";
-        }
-        props.put("value.serializer", valueSerializer);
-
-        String acks = kafkaProperties.getProducer().getAcks();
-        if (acks != null) {
-            props.put("acks", acks);
-        }
-
-        String retries = kafkaProperties.getProducer().getRetries();
-        if (retries != null) {
-            props.put("retries", retries);
-        }
-
-        String batchSize = kafkaProperties.getProducer().getBatchSize();
-        if (batchSize != null) {
-            props.put("batch.size", batchSize);
-        }
+        props.put("acks", kafkaProperties.getProducer().getAcks());
+        props.put("retries", String.valueOf(kafkaProperties.getProducer().getRetries()));
+        props.put("batch.size", String.valueOf(kafkaProperties.getProducer().getBatchSize()));
 
         return new KafkaProducer<>(props);
     }
