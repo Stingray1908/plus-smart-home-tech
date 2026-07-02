@@ -78,24 +78,60 @@ public class AggregationStarter {
                     if (updated.isPresent()) {
                         SensorsSnapshotAvro currentSnapshot = updated.get();
 
-                        // ВАЖНО: делаем копию снапшота для отправки, чтобы не мутировать кэш
+                        // Создаём снапшот для отправки
                         SensorsSnapshotAvro sendSnapshot = new SensorsSnapshotAvro();
+
+                        // 1. Копируем основные идентификаторы (это всё, что есть в схеме SensorsSnapshotAvro)
                         sendSnapshot.setHubId(currentSnapshot.getHubId());
                         sendSnapshot.setTimestamp(currentSnapshot.getTimestamp());
 
-                        Map<String, SensorStateAvro> copiedStates = new HashMap<>(currentSnapshot.getSensorsState());
-                        sendSnapshot.setSensorsState(copiedStates);
+                        // 2. Копируем карту состояний (sensorsState) — это главный источник правды для тестов
+                        Map<String, SensorStateAvro> states = currentSnapshot.getSensorsState();
+                        sendSnapshot.setSensorsState(new HashMap<>(states));
+
+                        // --- ОТЛАДКА: выводим, что реально улетит в Kafka ---
+                        log.info("📦 SNAPSHOT FOR SENDING: hubId={}, timestamp={}, sensorsCount={}",
+                                sendSnapshot.getHubId(),
+                                sendSnapshot.getTimestamp(),
+                                states.size());
+
+                        for (var entry : states.entrySet()) {
+                            String deviceId = entry.getKey();
+                            SensorStateAvro state = entry.getValue();
+                            Object data = state.getData();
+
+                            if (data instanceof ClimateSensorAvro climate) {
+                                log.info("  🌡️ ClimateSensorAvro[{}]: temp_c={}, humidity={}, co2_level={}",
+                                        deviceId, climate.getTemperatureC(), climate.getHumidity(), climate.getCo2Level());
+                            } else if (data instanceof LightSensorAvro light) {
+                                log.info("  💡 LightSensorAvro[{}]: link_quality={}, luminosity={}",
+                                        deviceId, light.getLinkQuality(), light.getLuminosity());
+                            } else if (data instanceof MotionSensorAvro motion) {
+                                log.info("  🏃 MotionSensorAvro[{}]: motion={}, link_quality={}, voltage={}",
+                                        deviceId, motion.getMotion(), motion.getLinkQuality(), motion.getVoltage());
+                            } else if (data instanceof SwitchSensorAvro sw) {
+                                log.info("  🔌 SwitchSensorAvro[{}]: state={}", deviceId, sw.getState());
+                            } else if (data instanceof TemperatureSensorAvro temp) {
+                                log.info("  🌡️ TemperatureSensorAvro[{}]: temp_c={}, temp_f={}",
+                                        deviceId, temp.getTemperatureC(), temp.getTemperatureF());
+                            } else {
+                                log.warn("  ❓ Unknown sensor type for deviceId={}: {}", deviceId, data != null ? data.getClass().getSimpleName() : "null");
+                            }
+                        }
+                        // -----------------------------------------------------
 
                         var pr = new ProducerRecord<>(snapshotTopic, sendSnapshot.getHubId(), sendSnapshot);
                         producer.send(pr, (metadata, exception) -> {
                             if (exception != null) {
                                 log.error("Failed to send snapshot for hubId={}", sendSnapshot.getHubId(), exception);
+                            } else {
+                                log.info("✅ Snapshot sent successfully to topic={}, partition={}, offset={}",
+                                        pr.topic(), metadata.partition(), metadata.offset());
                             }
                         });
                     }
                 }
 
-                // Коммитим только если автокоммит выключен
                 if (!kafkaProperties.getConsumer().isEnableAutoCommit()) {
                     consumer.commitSync();
                 }
@@ -105,11 +141,11 @@ public class AggregationStarter {
         } catch (Exception e) {
             log.error("Error in aggregation loop", e);
         } finally {
-            // Гарантированно делаем flush/close, когда цикл закончился
             producer.flush();
             producer.close();
             consumer.close();
         }
+
     }
 
     private Optional<SensorsSnapshotAvro> updateState(SensorEventAvro event) {
