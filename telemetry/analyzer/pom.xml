@@ -91,4 +91,17 @@
 
     </dependencies>
 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <!-- Если хочешь явно указать главный класс (не обязательно, но надёжно) -->
+                <!-- <configuration>
+                    <mainClass>ru.yandex.practicum.Analyzer</mainClass>
+                </configuration> -->
+            </plugin>
+        </plugins>
+    </build>
+
 </project>

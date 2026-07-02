@@ -1,71 +1,82 @@
 package ru.yandex.practicum.config;
 
+import lombok.RequiredArgsConstructor;
+import org.apache.avro.specific.SpecificRecordBase;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+
 import ru.yandex.practicum.kafka.telemetry.event.HubEventAvro;
 import ru.yandex.practicum.kafka.telemetry.event.SensorsSnapshotAvro;
 
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 
 @Configuration
+@RequiredArgsConstructor
 public class KafkaConfig {
 
-    private static final String BOOTSTRAP_SERVERS = "localhost:9092";
-    private static final String GROUP_ID_SNAPSHOTS = "analyzer-snapshots-group";
-    private static final String GROUP_ID_HUBS = "analyzer-hub-events-group";
+    private final KafkaProperties kafkaProperties;
 
-    // Фабрика для SnapshotConsumer
+    // --- Продюсер (общий для Avro-событий) ---
     @Bean
-    public DefaultKafkaConsumerFactory<String, SensorsSnapshotAvro> snapshotConsumerFactory() {
-        Map<String, Object> props = new HashMap<>();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, GROUP_ID_SNAPSHOTS);
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer");
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ru.yandex.practicum.config.SensorsSnapshotAvroDeserializer.class.getName());
+    public KafkaProducer<String, SpecificRecordBase> kafkaProducer() {
+        Properties props = new Properties();
 
-        // Критично: чтобы долгая обработка не приводила к ребалансу
-        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, "300000"); // 5 минут
-        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "45000");   // 45 секунд
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaProperties.getBootstrapServers());
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, kafkaProperties.getProducer().getKeySerializer());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, kafkaProperties.getProducer().getValueSerializer());
 
-        return new DefaultKafkaConsumerFactory<>(props);
+        if (kafkaProperties.getProducer().getAcks() != null) {
+            props.put(ProducerConfig.ACKS_CONFIG, kafkaProperties.getProducer().getAcks());
+        }
+        if (kafkaProperties.getProducer().getRetries() != null) {
+            props.put(ProducerConfig.RETRIES_CONFIG, kafkaProperties.getProducer().getRetries());
+        }
+        if (kafkaProperties.getProducer().getBatchSize() != null) {
+            props.put(ProducerConfig.BATCH_SIZE_CONFIG, kafkaProperties.getProducer().getBatchSize());
+        }
+
+        return new KafkaProducer<>(props);
     }
 
+    // --- Консьюмер для Snapshot (telemetry.snapshots.v1) ---
     @Bean
-    public Consumer<String, SensorsSnapshotAvro> snapshotConsumer(
-            DefaultKafkaConsumerFactory<String, SensorsSnapshotAvro> factory) {
-        var consumer = factory.createConsumer();
+    public Consumer<String, SensorsSnapshotAvro> snapshotConsumer() {
+        Map<String, Object> props = buildCommonConsumerProps();
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "analyzer-snapshots-group");
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ru.yandex.practicum.config.SensorsSnapshotAvroDeserializer.class.getName());
+
+        Consumer<String, SensorsSnapshotAvro> consumer = new org.apache.kafka.clients.consumer.KafkaConsumer<>(props);
         consumer.subscribe(Collections.singletonList("telemetry.snapshots.v1"));
         return consumer;
     }
 
-    // Фабрика для HubEventConsumer
+    // --- Консьюмер для HubEvent (telemetry.hubs.v1) ---
     @Bean
-    public DefaultKafkaConsumerFactory<String, HubEventAvro> hubEventConsumerFactory() {
-        Map<String, Object> props = new HashMap<>();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, GROUP_ID_HUBS);
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer");
+    public Consumer<String, HubEventAvro> hubEventConsumer() {
+        Map<String, Object> props = buildCommonConsumerProps();
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, "analyzer-hub-events-group");
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ru.yandex.practicum.config.HubEventAvroDeserializer.class.getName());
 
-        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, "300000");
-        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, "45000");
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
-
-        return new DefaultKafkaConsumerFactory<>(props);
-    }
-
-    @Bean
-    public Consumer<String, HubEventAvro> hubEventConsumer(
-            DefaultKafkaConsumerFactory<String, HubEventAvro> factory) {
-        var consumer = factory.createConsumer();
+        Consumer<String, HubEventAvro> consumer = new org.apache.kafka.clients.consumer.KafkaConsumer<>(props);
         consumer.subscribe(Collections.singletonList("telemetry.hubs.v1"));
         return consumer;
+    }
+
+    private Map<String, Object> buildCommonConsumerProps() {
+        Map<String, Object> props = new HashMap<>();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaProperties.getBootstrapServers());
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, kafkaProperties.getConsumer().getMaxPollIntervalMs());
+        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, kafkaProperties.getConsumer().getSessionTimeoutMs());
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, kafkaProperties.getConsumer().isEnableAutoCommit());
+        return props;
     }
 }

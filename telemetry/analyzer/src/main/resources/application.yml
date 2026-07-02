@@ -1,14 +1,14 @@
 spring:
   jpa:
     hibernate:
-      ddl-auto: none          # отключаем автогенерацию схемы, чтобы не ломать руками созданное
+      ddl-auto: none
   datasource:
     url: jdbc:postgresql://localhost:5432/smart_home_db
     username: postgres
     password: password
   sql:
     init:
-      mode: always            # всегда выполнять schema.sql при старте
+      mode: always
       schema: classpath:schema.sql
       continue-on-error: false
 
@@ -23,8 +23,21 @@ grpc:
       keepAliveWithoutCalls: true
       negotiationType: plaintext
 
+kafka:
+  bootstrap-servers: "localhost:9092"
+  producer:
+    key-serializer: "org.apache.kafka.common.serialization.StringSerializer"
+    value-serializer: "ru.yandex.practicum.config.SensorEventAvroSerializer"  # замени на свой реальный класс Avro-сериализатора
+    acks: "all"
+    retries: 3
+    batch-size: 16384
+  consumer:
+    max-poll-interval-ms: 300000
+    session-timeout-ms: 45000
+    enable-auto-commit: false
+
 logging:
   level:
     ru:
       yandex:
-        practicum=DEBUG:
+        practicum: DEBUG
