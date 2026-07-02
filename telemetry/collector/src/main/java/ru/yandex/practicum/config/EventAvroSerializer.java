@@ -12,23 +12,31 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 
 public class EventAvroSerializer implements Serializer<SpecificRecordBase> {
+
     private final EncoderFactory encoderFactory = EncoderFactory.get();
-    private BinaryEncoder encoder;
 
     @Override
     public byte[] serialize(String topic, SpecificRecordBase data) {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            if (data != null) {
-                DatumWriter<SpecificRecordBase> writer =
-                        new SpecificDatumWriter<>(data.getSchema());
-                encoder = encoderFactory.binaryEncoder(out, encoder);
-                writer.write(data, encoder);
-                encoder.flush();
+            if (data == null) {
+                return null;
             }
+            DatumWriter<SpecificRecordBase> writer = new SpecificDatumWriter<>(data.getSchema());
+            BinaryEncoder encoder = encoderFactory.binaryEncoder(out, null);
+            writer.write(data, encoder);
+            encoder.flush();
             return out.toByteArray();
         } catch (IOException ex) {
             throw new SerializationException(
                     "Ошибка сериализации данных для топика [" + topic + "]", ex);
         }
+    }
+
+    @Override
+    public void configure(java.util.Map<String, ?> configs, boolean isKey) {
+    }
+
+    @Override
+    public void close() {
     }
 }
