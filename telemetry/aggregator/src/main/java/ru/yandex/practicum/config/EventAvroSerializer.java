@@ -13,16 +13,16 @@ import java.io.IOException;
 import java.util.Map;
 
 public class EventAvroSerializer implements Serializer<SpecificRecordBase> {
-    private final EncoderFactory encoderFactory = EncoderFactory.get();
+    private static final EncoderFactory ENCODER_FACTORY = EncoderFactory.get();
 
     @Override
     public byte[] serialize(String topic, SpecificRecordBase data) {
+        if (data == null) {
+            return null;
+        }
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            if (data == null) {
-                return null;
-            }
             DatumWriter<SpecificRecordBase> writer = new SpecificDatumWriter<>(data.getSchema());
-            BinaryEncoder encoder = encoderFactory.binaryEncoder(out, null); // <-- новый каждый раз
+            BinaryEncoder encoder = ENCODER_FACTORY.binaryEncoder(out, null);
             writer.write(data, encoder);
             encoder.flush();
             return out.toByteArray();
@@ -32,9 +32,8 @@ public class EventAvroSerializer implements Serializer<SpecificRecordBase> {
     }
 
     @Override
-    public void close() {}
+    public void configure(Map<String, ?> configs, boolean isKey) {}
 
     @Override
-    public void configure(Map<String, ?> configs, boolean isKey) {}
+    public void close() {}
 }
-
