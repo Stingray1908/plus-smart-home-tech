@@ -1,7 +1,6 @@
 package ru.yandex.practicum;
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.avro.specific.SpecificRecordBase;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -26,17 +25,20 @@ import ru.yandex.practicum.kafka.telemetry.event.*;
 @Component
 public class AggregationStarter {
 
-    private KafkaConsumer<String, SensorEventAvro> consumer;
-    private KafkaProducer<String, SensorsSnapshotAvro > producer;
+    private final KafkaConsumer<String, SensorEventAvro> consumer;
+    private final KafkaProducer<String, SensorsSnapshotAvro> producer;
     // Храним снапшоты по hubId. Важно: это кэш текущего состояния, НЕ то, что мы отправляем.
     private final Map<String, SensorsSnapshotAvro> snapshots = new ConcurrentHashMap<>();
     private final String snapshotTopic;
     private final KafkaProperties kafkaProperties;
 
+    private volatile boolean running = false;
+    private Thread workerThread;
+
     @Autowired
     public AggregationStarter(
             KafkaConsumer<String, SensorEventAvro> consumer,
-            KafkaProducer<String, SensorsSnapshotAvro > producer,
+            KafkaProducer<String, SensorsSnapshotAvro> producer,
             KafkaProperties kafkaProperties) {
         this.consumer = consumer;
         this.producer = producer;
@@ -44,15 +46,32 @@ public class AggregationStarter {
         this.snapshotTopic = kafkaProperties.getTopic().getSnapshots();
     }
 
+    /**
+     * Запускает агрегацию в отдельном потоке.
+     */
     public void start() {
-        consumer.subscribe(Collections.singletonList(
-                kafkaProperties.getTopic().getSensorEvents() != null
-                        ? kafkaProperties.getTopic().getSensorEvents()
-                        : "telemetry.sensors.v1"
-        ));
+        if (running) {
+            log.warn("AggregationStarter already started");
+            return;
+        }
+        running = true;
+        workerThread = new Thread(this::runLoop, "aggregator-loop");
+        workerThread.start();
+    }
 
+    /**
+     * Корректно останавливает агрегацию: снимает флаг, будит консьюмер, чтобы он вышел из poll().
+     */
+    public void stop() {
+        running = false;
+        if (workerThread != null && workerThread.isAlive()) {
+            consumer.wakeup(); // вытаскивает consumer из poll() с WakeupException
+        }
+    }
+
+    private void runLoop() {
         try {
-            while (true) {
+            while (running) {
                 ConsumerRecords<String, SensorEventAvro> records = consumer.poll(Duration.ofSeconds(5));
                 for (ConsumerRecord<String, SensorEventAvro> record : records) {
                     Optional<SensorsSnapshotAvro> updated = updateState(record.value());
@@ -75,16 +94,21 @@ public class AggregationStarter {
                         });
                     }
                 }
-                consumer.commitSync();
+
+                // Коммитим только если автокоммит выключен
+                if (!kafkaProperties.getConsumer().isEnableAutoCommit()) {
+                    consumer.commitSync();
+                }
             }
         } catch (WakeupException ignored) {
-            log.info("Graceful shutdown initiated");
+            log.info("Aggregation loop woken up — stopping gracefully");
         } catch (Exception e) {
             log.error("Error in aggregation loop", e);
         } finally {
+            // Гарантированно делаем flush/close, когда цикл закончился
             producer.flush();
-            consumer.close();
             producer.close();
+            consumer.close();
         }
     }
 
