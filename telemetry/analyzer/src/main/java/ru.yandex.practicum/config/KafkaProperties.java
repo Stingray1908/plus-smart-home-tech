@@ -7,8 +7,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "kafka")
 public class KafkaProperties {
     private String bootstrapServers;
-
+    private Consumer consumer = new Consumer();
     private Producer producer = new Producer();
+    private Topics topics = new Topics();
+    private Groups groups = new Groups();
 
     @Data
     public static class Producer {
@@ -19,8 +21,6 @@ public class KafkaProperties {
         private Integer batchSize;
     }
 
-    private Consumer consumer = new Consumer();
-
     @Data
     public static class Consumer {
         private String autoOffsetReset = "earliest";
@@ -28,10 +28,6 @@ public class KafkaProperties {
         private int sessionTimeoutMs = 45000;
         private boolean enableAutoCommit = false;
     }
-
-    // Топики и группы — выносим из кода в конфиг
-    private Topics topics = new Topics();
-    private Groups groups = new Groups();
 
     @Data
     public static class Topics {
