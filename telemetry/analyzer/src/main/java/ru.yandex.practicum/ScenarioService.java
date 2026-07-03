@@ -40,11 +40,9 @@ public class ScenarioService {
         scenario = scenarioRepository.save(scenario); // получаем ID
         Long scenarioId = scenario.getId();
 
-        // Сначала удаляем старые связи в БД
         scenarioConditionRepository.deleteByScenarioId(scenarioId);
         scenarioActionRepository.deleteByScenarioId(scenarioId);
 
-        // Очищаем коллекции (если они загружены)
         scenario.getConditions().clear();
         scenario.getActions().clear();
 
@@ -111,7 +109,6 @@ public class ScenarioService {
         }
         scenario.getActions().addAll(actionLinks);
 
-        // Второй save не нужен: изменения в рамках транзакции и контекста персистентности
         log.info("Scenario saved: id={}, hub={}, name={}", scenario.getId(), hub.getId(), scenarioName);
     }
 

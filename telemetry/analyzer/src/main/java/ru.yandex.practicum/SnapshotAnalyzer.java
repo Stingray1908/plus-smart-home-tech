@@ -7,7 +7,6 @@ import org.springframework.stereotype.Service;
 
 import org.springframework.transaction.annotation.Transactional;
 import ru.yandex.practicum.entity.*;
-import ru.yandex.practicum.enums.ActionType;
 import ru.yandex.practicum.enums.Operation;
 import ru.yandex.practicum.grpc.telemetry.event.ActionTypeProto;
 import ru.yandex.practicum.grpc.telemetry.event.DeviceActionProto;
@@ -19,7 +18,6 @@ import ru.yandex.practicum.repository.ScenarioRepository;
 import com.google.protobuf.Timestamp;
 import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
 
 @Service
 @Slf4j
@@ -32,125 +30,113 @@ public class SnapshotAnalyzer {
                             @GrpcClient("hub-router") HubRouterControllerGrpc.HubRouterControllerBlockingStub hubRouterClient) {
         this.scenarioRepository = scenarioRepository;
         this.hubRouterClient = hubRouterClient;
-        log.info("🟢 SnapshotAnalyzer initialized. gRPC stub created (non-null? {})", hubRouterClient != null);
+        log.info("SnapshotAnalyzer initialized. gRPC stub created (non-null? {})", hubRouterClient != null);
     }
 
     @Transactional(readOnly = true)
     public void processSnapshot(SensorsSnapshotAvro snapshot) {
         String hubId = snapshot.getHubId();
-        log.info("🎯 START Processing snapshot for hub: {}", hubId);
+        log.debug("Processing snapshot for hub: {}", hubId);
 
-        // Теперь conditions уже загружены (JOIN FETCH), LazyInitialization не будет
         List<Scenario> scenarios = scenarioRepository.findByHubWithConditions(hubId);
-        log.info("✅ FOUND {} scenarios for hub={}", scenarios.size(), hubId);
+        if (scenarios.isEmpty()) {
+            log.trace("No scenarios found for hub={}", hubId);
+            return;
+        }
 
         long scenariosWithConditions = scenarios.stream()
                 .filter(s -> !s.getConditions().isEmpty())
                 .count();
 
-        log.info("Processed snapshot: hub={}, scenarios with conditions={}", hubId, scenariosWithConditions);
-
         if (scenariosWithConditions == 0) {
-            log.error("🔴 EMPTY CONDITIONS: All scenarios for hub={} have no conditions.", hubId);
+            log.warn("No conditions found for any scenario of hub={}. Nothing to evaluate.", hubId);
             return;
         }
 
-        scenarios.stream()
-                .filter(scenario -> {
-                    boolean triggered = isScenarioTriggered(scenario, snapshot);
-                    if (triggered) {
-                        log.info(">>> 🟢 SCENARIO TRIGGERED: '{}' for hub '{}'.", scenario.getName(), hubId);
-                    } else {
-                        log.debug("🟡 SCENARIO NOT TRIGGERED: '{}' for hub '{}'.", scenario.getName(), hubId);
-                    }
-                    return triggered;
-                })
-                .forEach(scenario -> executeActions(snapshot, scenario));
+        for (Scenario scenario : scenarios) {
+            if (!isScenarioTriggered(scenario, snapshot)) {
+                continue;
+            }
+            log.info("Scenario triggered: name='{}', hub='{}'.", scenario.getName(), hubId);
+            executeActions(snapshot, scenario);
+        }
     }
 
     private boolean isScenarioTriggered(Scenario scenario, SensorsSnapshotAvro snapshot) {
-        if (scenario == null) return false;
-
+        if (scenario == null) {
+            return false;
+        }
         List<ScenarioCondition> conditions = scenario.getConditions();
         if (conditions == null || conditions.isEmpty()) {
             return false;
         }
 
-        return conditions.stream()
-                .allMatch(condition -> {
-                    Sensor sensor = condition.getSensor();
-                    if (sensor == null) {
-                        log.error("❌ CRITICAL: Condition in scenario '{}' has NO Sensor!", scenario.getName());
-                        return false;
-                    }
+        return conditions.stream().allMatch(condition -> {
+            Sensor sensor = condition.getSensor();
+            if (sensor == null) {
+                log.error("Condition in scenario '{}' has no Sensor!", scenario.getName());
+                return false;
+            }
 
-                    Integer currentValue = getSensorValueFromSnapshot(sensor.getId(), snapshot);
-                    if (currentValue == null) {
-                        log.debug("⚠️ Sensor '{}' not found in snapshot. Condition fails.", sensor.getId());
-                        return false;
-                    }
+            Integer currentValue = getSensorValueFromSnapshot(sensor.getId(), snapshot);
+            if (currentValue == null) {
+                log.trace("Sensor '{}' not found in snapshot. Condition fails.", sensor.getId());
+                return false;
+            }
 
-                    Condition conditionObj = condition.getCondition();
-                    if (conditionObj == null) {
-                        log.error("❌ CRITICAL: Condition entity is NULL in scenario '{}'!", scenario.getName());
-                        return false;
-                    }
+            Condition conditionObj = condition.getCondition();
+            if (conditionObj == null) {
+                log.error("Condition entity is NULL in scenario '{}'!", scenario.getName());
+                return false;
+            }
 
-// Маппим строковую операцию из БД в наш enum Operation
-                    Operation op = parseOperation(conditionObj.getOperation());
-                    if (op == null) {
-                        log.warn("⚠️ Unknown operation '{}' in condition for scenario '{}'. Skipping condition.",
-                                conditionObj.getOperation(), scenario.getName());
-                        return false;
-                    }
+            Operation op = parseOperation(conditionObj.getOperation());
+            if (op == null) {
+                log.warn("Unknown operation '{}' in condition for scenario '{}'. Skipping condition.",
+                        conditionObj.getOperation(), scenario.getName());
+                return false;
+            }
 
-                    Object thresholdObj = conditionObj.getValue();
-
-                    log.trace("🧮 Check: sensor={}, op={}, current={}, threshold={}",
-                            sensor.getId(), op, currentValue, thresholdObj);
-
-                    return evaluateCondition(op, currentValue, thresholdObj);
-                });
+            return evaluateCondition(op, currentValue, conditionObj.getValue());
+        });
     }
 
     private Operation parseOperation(String opStr) {
-        if (opStr == null || opStr.isBlank()) return null;
-        String s = opStr.trim();
-
-        switch (s) {
-            case "==", "=", "EQUALS" -> {
-                return Operation.EQ;
-            }
-            case ">", "GREATER_THAN" -> {
-                return Operation.GT;
-            }
-            case "<", "LOWER_THAN" -> {
-                return Operation.LT;
-            }
-            default -> {
-                log.warn("⚠️ Unknown operation string: '{}'", opStr);
-                return null;
-            }
+        if (opStr == null || opStr.isBlank()) {
+            return null;
         }
+        String s = opStr.trim();
+        return switch (s) {
+            case "==", "=", "EQUALS" -> Operation.EQ;
+            case ">", "GREATER_THAN" -> Operation.GT;
+            case "<", "LOWER_THAN" -> Operation.LT;
+            default -> {
+                log.warn("Unknown operation string: '{}'", opStr);
+                yield null;
+            }
+        };
     }
 
-
     private boolean evaluateCondition(Operation op, int current, Object thresholdObj) {
-        Integer threshold;
-        if (thresholdObj instanceof Integer i) {
-            threshold = i;
-        } else if (thresholdObj instanceof Long l) {
-            threshold = l.intValue();
-        } else if (thresholdObj instanceof String s) {
-            try {
-                threshold = Integer.parseInt(s);
-            } catch (NumberFormatException e) {
-                log.warn("⚠️ Cannot parse threshold '{}' as int.", s);
-                return false;
+        Integer threshold = switch (thresholdObj) {
+            case Integer i -> i;
+            case Long l -> l.intValue();
+            case String s -> {
+                try {
+                    yield Integer.parseInt(s);
+                } catch (NumberFormatException e) {
+                    log.warn("Cannot parse threshold '{}' as int.", s);
+                    yield null;
+                }
             }
-        } else {
-            log.warn("⚠️ Unexpected threshold type: {}. Expected Integer/Long/String. Got: {}",
-                    thresholdObj.getClass().getSimpleName(), thresholdObj);
+            default -> {
+                log.warn("Unexpected threshold type: {}. Expected Integer/Long/String.",
+                        thresholdObj.getClass().getSimpleName());
+                yield null;
+            }
+        };
+
+        if (threshold == null) {
             return false;
         }
 
@@ -164,106 +150,112 @@ public class SnapshotAnalyzer {
 
     private Integer getSensorValueFromSnapshot(String sensorId, SensorsSnapshotAvro snapshot) {
         var stateMap = snapshot.getSensorsState();
-        if (stateMap == null) return null;
+        if (stateMap == null) {
+            return null;
+        }
         var state = stateMap.get(sensorId);
-        if (state == null) return null;
+        if (state == null) {
+            return null;
+        }
         return extractSensorValue(state);
     }
 
     private Integer extractSensorValue(SensorStateAvro state) {
         Object data = state.getData();
-        if (data == null) return null;
+        if (data == null) {
+            return null;
+        }
 
         if (data instanceof TemperatureSensorAvro t) {
             return t.getTemperatureC();
-        } else if (data instanceof ClimateSensorAvro c) {
+        }
+        if (data instanceof ClimateSensorAvro c) {
             return c.getTemperatureC();
-        } else if (data instanceof LightSensorAvro l) {
+        }
+        if (data instanceof LightSensorAvro l) {
             return l.getLuminosity();
-        } else if (data instanceof MotionSensorAvro m) {
+        }
+        if (data instanceof MotionSensorAvro m) {
             return m.getMotion() ? 1 : 0;
-        } else if (data instanceof SwitchSensorAvro s) {
+        }
+        if (data instanceof SwitchSensorAvro s) {
             return s.getState() ? 1 : 0;
         }
 
-        log.warn("⚠️ Unsupported sensor type: {}", data.getClass().getSimpleName());
+        log.warn("Unsupported sensor type: {}", data.getClass().getSimpleName());
         return null;
     }
 
     private void executeActions(SensorsSnapshotAvro snapshot, Scenario scenario) {
         List<ScenarioAction> actions = scenario.getActions();
         if (actions == null || actions.isEmpty()) {
-            log.warn("⚠️ Scenario '{}' has no actions to execute.", scenario.getName());
+            log.debug("Scenario '{}' has no actions to execute.", scenario.getName());
             return;
         }
 
-        log.info(">>> EXECUTING {} actions for scenario '{}'", actions.size(), scenario.getName());
+        Instant now = Instant.now();
+        Timestamp ts = Timestamp.newBuilder()
+                .setSeconds(now.getEpochSecond())
+                .setNanos(now.getNano())
+                .build();
 
-        actions.stream()
-                .map(action -> {
-                    if (action == null) return null;
+        int successCount = 0;
+        int failCount = 0;
 
-                    Action actionData = action.getAction();
-                    Sensor targetSensor = action.getSensor();
+        for (ScenarioAction action : actions) {
+            if (action == null) {
+                continue;
+            }
+            Action actionData = action.getAction();
+            Sensor targetSensor = action.getSensor();
+            if (actionData == null || targetSensor == null) {
+                log.error("Action in scenario '{}' has null Action or Sensor target!", scenario.getName());
+                failCount++;
+                continue;
+            }
 
-                    if (actionData == null) {
-                        log.error("❌ Action in scenario '{}' has null Action!", scenario.getName());
-                        return null;
-                    }
-                    if (targetSensor == null) {
-                        log.error("❌ Action in scenario '{}' has null Sensor target!", scenario.getName());
-                        return null;
-                    }
+            ActionTypeProto protoType = switch (actionData.getType()) {
+                case ACTIVATE -> ActionTypeProto.ACTIVATE;
+                case DEACTIVATE -> ActionTypeProto.DEACTIVATE;
+                case SET_TEMP -> ActionTypeProto.SET_VALUE;
+                default -> throw new IllegalStateException("Unsupported action type: " + actionData.getType());
+            };
 
-                    ActionType typeEnum = actionData.getType();
+            DeviceActionProto deviceAction = DeviceActionProto.newBuilder()
+                    .setSensorId(targetSensor.getId())
+                    .setType(protoType)
+                    .setValue(actionData.getValue() != null ? actionData.getValue() : 0)
+                    .build();
 
-                    try {
-                        ActionTypeProto protoType = switch (typeEnum) {
-                            case ACTIVATE -> ActionTypeProto.ACTIVATE;
-                            case DEACTIVATE -> ActionTypeProto.DEACTIVATE;
-                            case SET_TEMP -> ActionTypeProto.SET_VALUE;
-                            default -> throw new IllegalStateException("Unsupported action type: " + typeEnum);
-                        };
+            var request = DeviceActionRequest.newBuilder()
+                    .setHubId(snapshot.getHubId())
+                    .setScenarioName(scenario.getName())
+                    .setAction(deviceAction)
+                    .setTimestamp(ts)
+                    .build();
 
-                        DeviceActionProto deviceAction = DeviceActionProto.newBuilder()
-                                .setSensorId(targetSensor.getId())
-                                .setType(protoType)
-                                .setValue(actionData.getValue() != null ? actionData.getValue() : 0)
-                                .build();
+            try {
+                hubRouterClient.handleDeviceAction(request);
+                successCount++;
+                log.debug("[GRPC OK] Sent to Hub Router: hub={}, sensor={}, action={}",
+                        request.getHubId(), request.getAction().getSensorId(), request.getAction().getType());
+            } catch (StatusRuntimeException e) {
+                failCount++;
+                log.error("[GRPC FAIL] Error for scenario '{}': code={}, desc={}",
+                        scenario.getName(), e.getStatus().getCode(), e.getStatus().getDescription(), e);
+            } catch (Exception e) {
+                failCount++;
+                log.error("[UNEXPECTED] Unexpected error sending action for scenario '{}'",
+                        scenario.getName(), e);
+            }
+        }
 
-                        Instant now = Instant.now();
-                        Timestamp ts = Timestamp.newBuilder()
-                                .setSeconds(now.getEpochSecond())
-                                .setNanos(now.getNano())
-                                .build();
-
-                        var request = DeviceActionRequest.newBuilder()
-                                .setHubId(snapshot.getHubId())
-                                .setScenarioName(scenario.getName())
-                                .setAction(deviceAction)
-                                .setTimestamp(ts)
-                                .build();
-
-                        return request;
-                    } catch (IllegalArgumentException e) {
-                        log.error("❌ Invalid action type '{}' in scenario '{}'.", typeEnum, scenario.getName(), e);
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .forEach(request -> {
-                    log.info("[GRPC CALL] Sending to Hub Router: hub={}, sensor={}, action={}",
-                            request.getHubId(), request.getAction().getSensorId(), request.getAction().getType());
-                    try {
-                        hubRouterClient.handleDeviceAction(request);
-                        log.info("🟢 [OK] Sent to Hub Router successfully.");
-                    } catch (StatusRuntimeException e) {
-                        log.error("🔴 [GRPC FAIL] Error for scenario '{}': code={}, desc={}",
-                                scenario.getName(), e.getStatus().getCode(), e.getStatus().getDescription(), e);
-                    } catch (Exception e) {
-                        log.error("🔴 [UNEXPECTED] Unexpected error sending action for scenario '{}'",
-                                scenario.getName(), e);
-                    }
-                });
+        if (failCount > 0) {
+            log.warn("Scenario '{}': executed {} actions, {} failed.",
+                    scenario.getName(), successCount, failCount);
+        } else {
+            log.info("Scenario '{}': all {} actions executed successfully.",
+                    scenario.getName(), successCount);
+        }
     }
 }
