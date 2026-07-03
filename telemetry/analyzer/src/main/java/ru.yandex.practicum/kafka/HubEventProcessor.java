@@ -108,7 +108,7 @@ public class HubEventProcessor implements Runnable {
                 log.info("Sensor {} removed from hub {}", sensorId, hubId);
             }
         }
-        // ИСПРАВЛЕНО: используем Avro-типы из твоей схемы
+
         else if (payload instanceof ScenarioAddedEventAvro scenEvent) {
             scenarioService.handleScenarioAdded(hub, scenEvent);
         }

@@ -3,15 +3,12 @@ package ru.yandex.practicum.kafka;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.Consumer;
-import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.errors.WakeupException;
 import org.springframework.stereotype.Component;
 import ru.yandex.practicum.SnapshotAnalyzer;
 import ru.yandex.practicum.kafka.telemetry.event.SensorsSnapshotAvro;
 
 import java.time.Duration;
-import java.util.Collections;
 
 @Getter
 @Slf4j
@@ -58,7 +55,7 @@ public class SnapshotProcessor implements Runnable {
                         snapshot = record.value();
 
                         if (snapshot != null) {
-                            // !!! ГЛАВНОЕ ИЗМЕНЕНИЕ: Ловим ошибку прямо здесь, даже если она внутри анализатора
+
                             try {
                                 analyzer.processSnapshot(snapshot);
                                 log.debug("Snapshot successfully processed: offset={}", record.offset());
@@ -71,7 +68,7 @@ public class SnapshotProcessor implements Runnable {
                         } else {
                             log.warn("Received null snapshot at offset {} partition {}",
                                     record.offset(), record.partition());
-                            allProcessedSuccessfully = false; // Не коммитим битые сообщения
+                            allProcessedSuccessfully = false;
                         }
                     } catch (Exception e) {
                         allProcessedSuccessfully = false;
@@ -85,19 +82,17 @@ public class SnapshotProcessor implements Runnable {
                     }
                 }
 
-                // Логика коммита
+
                 if (allProcessedSuccessfully) {
                     consumer.commitAsync((offsets, e) -> {
                         if (e != null) {
                             log.error("Async commit failed for snapshots", e);
                         } else {
-                            log.info("✅ OFFSETS COMMITTED for batch size: {}", records.count());
+                            log.info("OFFSETS COMMITTED for batch size: {}", records.count());
                         }
                     });
                 } else {
-                    // Если хоть одна запись упала, мы НЕ делаем коммит.
-                    // Kafka оставит оффсет на месте, и при следующем poll это сообщение придёт снова.
-                    log.warn("⚠️ Batch had errors. Offsets NOT committed. Retrying on next poll.");
+                    log.warn("Batch had errors. Offsets NOT committed. Retrying on next poll.");
                 }
             }
         } catch (WakeupException e) {

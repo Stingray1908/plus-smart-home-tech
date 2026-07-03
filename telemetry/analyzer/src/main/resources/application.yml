@@ -23,7 +23,6 @@ grpc:
       keepAliveWithoutCalls: true
       negotiationType: plaintext
 
-
 kafka:
   bootstrap-servers: "localhost:9092"
   producer:
