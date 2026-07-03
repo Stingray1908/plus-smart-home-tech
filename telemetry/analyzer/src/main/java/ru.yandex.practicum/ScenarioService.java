@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.yandex.practicum.entity.*;
+import ru.yandex.practicum.enums.ActionType;
 import ru.yandex.practicum.kafka.telemetry.event.*; // твои Avro-классы
 import ru.yandex.practicum.repository.*;
 
@@ -116,12 +117,12 @@ public class ScenarioService {
                 }
             }
 
-            String actionTypeStr = mapActionType(avroAct.getType());
+            ActionType actionType = mapActionType(avroAct.getType());
 
-            Optional<Action> actOpt = actionRepository.findByTypeAndValue(actionTypeStr, finalActionValue);
+            Optional<Action> actOpt = actionRepository.findByTypeAndValue(actionType, finalActionValue);
             Action action = actOpt.orElseGet(() -> {
                 Action a = new Action();
-                a.setType(actionTypeStr);
+                a.setType(actionType);
                 a.setValue(finalActionValue);
                 return actionRepository.save(a);
             });
@@ -184,13 +185,13 @@ public class ScenarioService {
         };
     }
 
-    private String mapActionType(ActionTypeAvro type) {
+    private ActionType mapActionType(ActionTypeAvro type) {
         return switch (type) {
-            case ACTIVATE -> "ACTIVATE";
-            case DEACTIVATE -> "DEACTIVATE";
-            case INVERSE -> "INVERSE";
-            case SET_VALUE -> "SET_VALUE";
-            default -> type.name();
+            case ACTIVATE -> ActionType.ACTIVATE;
+            case DEACTIVATE -> ActionType.DEACTIVATE;
+            case INVERSE -> ActionType.ACTIVATE; // или выбери логику под свой кейс
+            case SET_VALUE -> ActionType.SET_TEMP; // или отдельный тип, если нужен
+            default -> throw new IllegalArgumentException("Unsupported action type: " + type);
         };
     }
 

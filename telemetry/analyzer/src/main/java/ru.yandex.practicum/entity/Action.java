@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
+import ru.yandex.practicum.enums.ActionType;
 
 @Entity
 @Table(name = "actions")
@@ -16,9 +17,10 @@ public class Action {
     @Column(name = "id")
     private Long id;
 
-    @Column(name = "type")
-    private String type; // "turn_on", "set_temperature", и т.п.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "type", nullable = false)
+    private ActionType type;
 
     @Column(name = "value")
-    private Integer value; // параметр действия
+    private Integer value;
 }

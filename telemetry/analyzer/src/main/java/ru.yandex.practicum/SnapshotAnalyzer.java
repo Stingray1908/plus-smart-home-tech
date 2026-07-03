@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import org.springframework.transaction.annotation.Transactional;
 import ru.yandex.practicum.entity.*;
+import ru.yandex.practicum.enums.ActionType;
 import ru.yandex.practicum.enums.Operation;
 import ru.yandex.practicum.grpc.telemetry.event.ActionTypeProto;
 import ru.yandex.practicum.grpc.telemetry.event.DeviceActionProto;
@@ -214,14 +215,15 @@ public class SnapshotAnalyzer {
                         return null;
                     }
 
-                    String typeStr = actionData.getType();
-                    if (typeStr == null || typeStr.trim().isEmpty()) {
-                        log.error("❌ Action in scenario '{}' has empty type!", scenario.getName());
-                        return null;
-                    }
+                    ActionType typeEnum = actionData.getType();
 
                     try {
-                        ActionTypeProto protoType = ActionTypeProto.valueOf(typeStr.trim().toUpperCase());
+                        ActionTypeProto protoType = switch (typeEnum) {
+                            case ACTIVATE -> ActionTypeProto.ACTIVATE;
+                            case DEACTIVATE -> ActionTypeProto.DEACTIVATE;
+                            case SET_TEMP -> ActionTypeProto.SET_VALUE;
+                            default -> throw new IllegalStateException("Unsupported action type: " + typeEnum);
+                        };
 
                         DeviceActionProto deviceAction = DeviceActionProto.newBuilder()
                                 .setSensorId(targetSensor.getId())
@@ -244,7 +246,7 @@ public class SnapshotAnalyzer {
 
                         return request;
                     } catch (IllegalArgumentException e) {
-                        log.error("❌ Invalid action type '{}' in scenario '{}'.", typeStr, scenario.getName(), e);
+                        log.error("❌ Invalid action type '{}' in scenario '{}'.", typeEnum, scenario.getName(), e);
                         return null;
                     }
                 })
