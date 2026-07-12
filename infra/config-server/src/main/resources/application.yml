@@ -7,4 +7,5 @@ spring:
     config:
       server:
         native:
-          search-locations: classpath:/config/{application}/{profile}
+          search-locations:
+            - classpath:config/telemetry/{application}
