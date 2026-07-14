@@ -1,3 +1,7 @@
+logging:
+  level:
+    org.springframework.boot.context.properties: DEBUG
+
 spring:
   application:
     name: aggregator

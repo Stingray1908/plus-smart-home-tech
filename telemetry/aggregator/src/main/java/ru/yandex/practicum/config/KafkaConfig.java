@@ -13,7 +13,7 @@ import ru.yandex.practicum.kafka.telemetry.event.SensorsSnapshotAvro;
 import java.util.Collections;
 import java.util.Properties;
 
-    @Configuration
+@Configuration
 public class KafkaConfig {
 
     private final KafkaProperties kafkaProperties;
