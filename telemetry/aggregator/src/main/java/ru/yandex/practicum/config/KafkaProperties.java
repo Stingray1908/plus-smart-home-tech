@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 @Component
-@ConfigurationProperties(prefix = "kafka")
+@ConfigurationProperties("aggregator.kafka")
 @Getter
 @Setter
 public class KafkaProperties {
