@@ -1,19 +1,12 @@
+logging:
+  level:
+    org.springframework.boot.context.properties: DEBUG
+
 spring:
   application:
-    name: smart-home-collector
+    name: collector
+  config:
+    import: configserver:http://localhost:8888
 
-kafka:
-  bootstrap-servers: localhost:9092
-  topic:
-    hubEvents: telemetry.hubs.v1
-    sensorEvents: telemetry.sensors.v1
-  producer:
-    acks: 1
-    retries: 3
-    batchSize: 16384
-    keySerializer: org.apache.kafka.common.serialization.StringSerializer
-    valueSerializer: ru.yandex.practicum.config.EventAvroSerializer
-
-grpc:
-  server:
-    port: 59091
+server:
+  port: 8080
