@@ -5,7 +5,12 @@ spring:
   application:
     name: analyzer
   config:
-    import: configserver:http://localhost:8888
+    import: "configserver:"
+    cloud:
+      config:
+        discovery:
+          enabled: true
+          serviceId: config-server
 
 logging:
   level:

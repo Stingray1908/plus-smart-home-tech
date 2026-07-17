@@ -6,7 +6,12 @@ spring:
   application:
     name: aggregator
   config:
-    import: configserver:http://localhost:8888
+    import: "configserver:"
+    cloud:
+      config:
+        discovery:
+          enabled: true
+          serviceId: config-server
 
 server:
   port: 8081
