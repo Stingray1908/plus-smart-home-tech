@@ -6,15 +6,19 @@ spring:
   application:
     name: collector
   config:
-    import: "configserver:"
-    cloud:
-      config:
-        discovery:
-          enabled: true
-          serviceId: config-server
+    import: "optional:configserver:"   # <--- ЭТО ОБЯЗАТЕЛЬНОЕ СВОЙСТВО
+  cloud:
+    config:
+      discovery:
+        enabled: true                  # <-- теперь это сработает, потому что import уже есть
+        service-id: config-server
 
 server:
   port: 8080
+
+grpc:
+  server:
+    port: 59091
 
 eureka:
   client:

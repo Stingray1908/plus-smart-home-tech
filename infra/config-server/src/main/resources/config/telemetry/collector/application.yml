@@ -10,7 +10,3 @@ kafka:
     batchSize: 16384
     keySerializer: org.apache.kafka.common.serialization.StringSerializer
     valueSerializer: ru.yandex.practicum.config.EventAvroSerializer
-
-grpc:
-  server:
-    port: 59091

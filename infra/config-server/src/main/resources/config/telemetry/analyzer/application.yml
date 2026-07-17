@@ -12,14 +12,6 @@ spring:
       schema: classpath:schema.sql
       continue-on-error: false
 
-grpc:
-  client:
-    hub-router:
-      address: 'static://localhost:59090'
-      enableKeepAlive: true
-      keepAliveWithoutCalls: true
-      negotiationType: plaintext
-
 kafka:
   bootstrap-servers: "localhost:9092"
   producer:
