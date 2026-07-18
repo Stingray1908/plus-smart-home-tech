@@ -20,6 +20,9 @@
         <module>infra</module>
         <module>commerce</module>
         <module>discovery-server</module>
+        <module>commerce/shopping-store</module>
+        <module>commerce/shopping-cart</module>
+        <module>commerce/warehouse</module>
     </modules>
 
     <properties>
