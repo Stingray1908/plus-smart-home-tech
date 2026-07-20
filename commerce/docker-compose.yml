@@ -1,0 +1,50 @@
+services:
+  # База данных PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: shopping_store_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: smart_home_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d smart_home_db"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # Твое приложение (Spring Boot)
+  app:
+    build:
+      context: /shopping-store
+      dockerfile: Dockerfile
+    container_name: shopping_store_app
+    depends_on:
+      db:
+        condition: service_healthy  # <-- ВАЖНО: приложение стартует ТОЛЬКО когда база готова
+    environment:
+      # Передаем настройки БД прямо сюда. Они перезапишут всё, что в application.yml
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/smart_home_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: password
+
+      # Если у тебя есть Config Server, раскомментируй и укажи адрес:
+      # SPRING_CLOUD_CONFIG_URI: http://config-server:8888
+
+      # Для отладки
+      SPRING_PROFILES_ACTIVE: docker
+
+    ports:
+      - "8080:8080"
+    volumes:
+      # Пробрасываем папку target, чтобы не собирать jar каждый раз заново, если ты меняешь код
+      # Но для первого запуска лучше собрать вручную (см. инструкцию ниже)
+      - ./target:/app/target
+
+volumes:
+  pgdata:

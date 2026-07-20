@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: shopping-store
+  jpa:
+    hibernate:
+      ddl-auto: update  # Автоматически создаст таблицу products при первом запуске
+    show-sql: true       # Видеть SQL запросы в логах (удобно для отладки)
+  datasource:
+    # Эти значения будут ПЕРЕЗАПИСАНЫ переменными окружения из docker-compose.yml
+    url: jdbc:postgresql://localhost:5432/smart_home_db
+    username: postgres
+    password: password
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    ru.yandex.practicum: DEBUG

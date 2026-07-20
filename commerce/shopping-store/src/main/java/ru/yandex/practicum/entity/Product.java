@@ -1,8 +1,7 @@
 package ru.yandex.practicum.entity;
 
 import jakarta.persistence.*;
-import lombok.Builder;
-import lombok.Getter;
+import lombok.*;
 
 import ru.yandex.practicum.enums.ProductCategory;
 import ru.yandex.practicum.enums.ProductState;
@@ -14,6 +13,8 @@ import java.util.UUID;
 @Table(name = "products")
 @Getter
 @Builder
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor
 
 public class Product {
 
@@ -40,7 +41,6 @@ public class Product {
     @Column(length = 20)
     private ProductCategory productCategory;
 
-    @Column(precision = 10, scale = 2)
     private Double price;
 }
 
