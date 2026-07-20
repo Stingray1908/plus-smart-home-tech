@@ -32,7 +32,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/smart_home_db
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: password
-
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
       # Если у тебя есть Config Server, раскомментируй и укажи адрес:
       # SPRING_CLOUD_CONFIG_URI: http://config-server:8888
 
