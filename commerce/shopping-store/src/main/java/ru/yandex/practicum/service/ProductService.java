@@ -9,11 +9,13 @@ import org.springframework.stereotype.Service;
 import ru.yandex.practicum.dto.ProductDto;
 import ru.yandex.practicum.entity.Product;
 import ru.yandex.practicum.enums.ProductCategory;
+import ru.yandex.practicum.exception.ProductNotFoundException;
 import ru.yandex.practicum.mapper.ProductMapper;
 import ru.yandex.practicum.repository.ProductRepository;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -44,6 +46,16 @@ public class ProductService {
         return productsPage.map(ProductMapper::toDto);
     }
 
+    public ProductDto findById(UUID productId) {
+        return productRepository.findById(productId)
+                .map(ProductMapper::toDto)
+                .orElseThrow(() -> new ProductNotFoundException(
+                        "Product not found with id: " + productId,
+                        "Товар с таким идентификатором не найден",
+                        404,
+                        null
+                ));
+    }
     /**
      * Принимает список строк вида "field,asc" или "field,desc".
      * Если список пуст или null — сортирует по productName ASC.
