@@ -7,13 +7,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.dto.ProductDto;
 import ru.yandex.practicum.dto.RemoveProductDto;
-import ru.yandex.practicum.exception.ProductNotFoundException;
 import ru.yandex.practicum.service.ProductService;
+import ru.yandex.practicum.dto.SetProductQuantityStateRequest;
 
 import java.util.List;
 import java.util.UUID;
-
-import static ru.yandex.practicum.mapper.ProductMapper.toDto;
 
 @RestController
 @RequestMapping("/api/v1/shopping-store")
@@ -55,6 +53,12 @@ public class ShoppingStoreController {
     @PostMapping("/removeProductFromStore")
     public ResponseEntity<Boolean> removeProductFromStore(@RequestBody RemoveProductDto request) {
         boolean result = productService.deactivateProduct(request.getProductId());
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/quantityState")
+    public ResponseEntity<Boolean> setQuantityState(@RequestBody SetProductQuantityStateRequest request) {
+        boolean result = productService.setQuantityState(request.getProductId(), request.getQuantityState());
         return ResponseEntity.ok(result);
     }
 

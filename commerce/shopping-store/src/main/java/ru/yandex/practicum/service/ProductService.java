@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import ru.yandex.practicum.dto.ProductDto;
 import ru.yandex.practicum.entity.Product;
 import ru.yandex.practicum.enums.ProductCategory;
+import ru.yandex.practicum.enums.QuantityState;
 import ru.yandex.practicum.exception.ProductNotFoundException;
 import ru.yandex.practicum.mapper.ProductMapper;
 import ru.yandex.practicum.repository.ProductRepository;
@@ -71,6 +72,12 @@ public class ProductService {
         return true;
     }
 
+    public boolean setQuantityState(UUID productId, QuantityState quantityState) {
+        Product product = findByIdOrThrowNotFound(productId);
+        product.setQuantityState(quantityState);
+        productRepository.save(product);
+        return true;
+    }
 
     /**
      * Принимает список строк вида "field,asc" или "field,desc".
