@@ -64,6 +64,14 @@ public class ProductService {
         return toDto(saved);
     }
 
+    public boolean deactivateProduct(UUID productId) {
+        Product product = findByIdOrThrowNotFound(productId);
+        product.setProductState(ru.yandex.practicum.enums.ProductState.DEACTIVATE);
+        productRepository.save(product);
+        return true;
+    }
+
+
     /**
      * Принимает список строк вида "field,asc" или "field,desc".
      * Если список пуст или null — сортирует по productName ASC.
@@ -75,7 +83,6 @@ public class ProductService {
         }
 
         List<Sort.Order> orders = new ArrayList<>();
-
         for (String s : sorts) {
             if (s == null || s.trim().isEmpty()) {
                 continue;
@@ -97,7 +104,6 @@ public class ProductService {
                     );
                 }
             }
-
             orders.add(new Sort.Order(direction, property));
         }
 

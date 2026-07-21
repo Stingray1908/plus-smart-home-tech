@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.dto.ProductDto;
+import ru.yandex.practicum.dto.RemoveProductDto;
 import ru.yandex.practicum.exception.ProductNotFoundException;
 import ru.yandex.practicum.service.ProductService;
 
@@ -50,4 +51,11 @@ public class ShoppingStoreController {
         ProductDto updated = productService.updateProduct(dto);
         return ResponseEntity.ok(updated);
     }
+
+    @PostMapping("/removeProductFromStore")
+    public ResponseEntity<Boolean> removeProductFromStore(@RequestBody RemoveProductDto request) {
+        boolean result = productService.deactivateProduct(request.getProductId());
+        return ResponseEntity.ok(result);
+    }
+
 }
