@@ -17,6 +17,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import static ru.yandex.practicum.mapper.ProductMapper.toDto;
+
 @Service
 @RequiredArgsConstructor
 public class ProductService {
@@ -26,7 +28,7 @@ public class ProductService {
     public ProductDto createProduct(ProductDto dto) {
         Product entity = ProductMapper.toEntity(dto);
         Product saved = productRepository.save(entity);
-        return ProductMapper.toDto(saved);
+        return toDto(saved);
     }
 
     public Page<ProductDto> getProductsByCategory(String category, int page, int size, List<String> sort) {
@@ -47,15 +49,21 @@ public class ProductService {
     }
 
     public ProductDto findById(UUID productId) {
-        return productRepository.findById(productId)
-                .map(ProductMapper::toDto)
-                .orElseThrow(() -> new ProductNotFoundException(
-                        "Product not found with id: " + productId,
-                        "Товар с таким идентификатором не найден",
-                        404,
-                        null
-                ));
+        return toDto(findByIdOrThrowNotFound(productId));
     }
+
+    public ProductDto updateProduct(ProductDto dto) {
+        UUID productId = dto.getProductId();
+        if (productId == null) {
+            throw new IllegalArgumentException("productId is required");
+        }
+
+        Product product = findByIdOrThrowNotFound(productId);
+        Product saved = productRepository.save(updateProduct(product, dto));
+
+        return toDto(saved);
+    }
+
     /**
      * Принимает список строк вида "field,asc" или "field,desc".
      * Если список пуст или null — сортирует по productName ASC.
@@ -98,5 +106,40 @@ public class ProductService {
         }
 
         return Sort.by(orders);
+    }
+
+    private Product findByIdOrThrowNotFound(UUID productId) {
+        return productRepository.findById(productId)
+                .orElseThrow(() -> new ProductNotFoundException(
+                        "Product not found with id: " + productId,
+                        "Товар с таким идентификатором не найден",
+                                404,
+                                null
+));
+    }
+
+    private Product updateProduct(Product exist, ProductDto update){
+        if (update.getProductName() != null) {
+            exist.setProductName(update.getProductName());
+        }
+        if (update.getDescription() != null) {
+            exist.setDescription(update.getDescription());
+        }
+        if (update.getImageSrc() != null) {
+            exist.setImageSrc(update.getImageSrc());
+        }
+        if (update.getQuantityState() != null) {
+            exist.setQuantityState(update.getQuantityState());
+        }
+        if (update.getProductState() != null) {
+            exist.setProductState(update.getProductState());
+        }
+        if (update.getProductCategory() != null) {
+            exist.setProductCategory(update.getProductCategory());
+        }
+        if (update.getPrice() != null) {
+            exist.setPrice(update.getPrice());
+        }
+        return exist;
     }
 }

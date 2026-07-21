@@ -44,4 +44,10 @@ public class ShoppingStoreController {
         ProductDto dto = productService.findById(productId);
         return ResponseEntity.ok(dto);
     }
+
+    @PostMapping
+    public ResponseEntity<ProductDto> updateProduct(@RequestBody ProductDto dto) {
+        ProductDto updated = productService.updateProduct(dto);
+        return ResponseEntity.ok(updated);
+    }
 }
