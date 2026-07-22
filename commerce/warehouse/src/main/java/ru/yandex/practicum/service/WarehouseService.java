@@ -1,14 +1,16 @@
 package ru.yandex.practicum.service;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import ru.yandex.practicum.dto.BookedProductsDto;
+import ru.yandex.practicum.dto.NewProductInWarehouseRequest;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 import ru.yandex.practicum.entity.WarehouseStock;
 import ru.yandex.practicum.exception.ProductInShoppingCartLowQuantityInWarehouse;
+import ru.yandex.practicum.exception.SpecifiedProductAlreadyInWarehouseException;
 import ru.yandex.practicum.repository.WarehouseStockRepository;
 
 import java.util.*;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -85,4 +87,40 @@ public class WarehouseService {
                 .fragile(anyFragile)
                 .build();
     }
+
+    @Transactional
+    public void addProductToWarehouse(NewProductInWarehouseRequest request) {
+        UUID productId = request.getProductId();
+
+        // 1. Проверяем, есть ли уже такой товар на складе
+        Optional<WarehouseStock> existing = warehouseStockRepository.findByProductId(productId);
+        if (existing.isPresent()) {
+            throw new SpecifiedProductAlreadyInWarehouseException(
+                    "Product with id " + productId + " is already registered in warehouse",
+                    "Товар с таким идентификатором уже зарегистрирован на складе",
+                    400,
+                    null
+            );
+        }
+
+        // 2. Считаем объём: width * height * depth
+        double volume = 0;
+        if (request.getDimension() != null) {
+            volume = request.getDimension().getWidth() *
+                    request.getDimension().getHeight() *
+                    request.getDimension().getDepth();
+        }
+
+        // 3. Создаём новую запись
+        WarehouseStock stock = WarehouseStock.builder()
+                .productId(productId)
+                .fragile(request.isFragile())
+                .weight(request.getWeight())
+                .volume(volume)
+                .quantity(0L) // По умолчанию 0, потом кто-то другой (или этот же метод) добавит количество
+                .build();
+
+        warehouseStockRepository.save(stock);
+    }
+
 }

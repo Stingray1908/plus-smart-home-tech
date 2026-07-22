@@ -2,11 +2,9 @@ package ru.yandex.practicum.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.dto.BookedProductsDto;
+import ru.yandex.practicum.dto.NewProductInWarehouseRequest;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 import ru.yandex.practicum.service.WarehouseService;
 
@@ -15,14 +13,20 @@ import ru.yandex.practicum.service.WarehouseService;
 @RequiredArgsConstructor
 public class WarehouseCheckController {
 
-    private final WarehouseService warehouseCheckService;
+    private final WarehouseService warehouseService;
 
     @PostMapping("/check")
     public ResponseEntity<BookedProductsDto> check(
             @RequestBody ShoppingCartDto cart
     ) {
-        BookedProductsDto result = warehouseCheckService.checkCart(cart);
+        BookedProductsDto result = warehouseService.checkCart(cart);
         return ResponseEntity.ok(result);
+    }
+
+    @PutMapping
+    public ResponseEntity<Void> addProduct(@RequestBody NewProductInWarehouseRequest request) {
+        warehouseService.addProductToWarehouse(request);
+        return ResponseEntity.ok().build();
     }
 
 
