@@ -9,16 +9,6 @@ docker run -d --name shopping_store_db -e POSTGRES_USER=postgres -e POSTGRES_PAS
 # db shopping_cart_db
 docker run -d --name shopping_cart_db -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=cart_db -p 5433:5432 --restart unless-stopped postgres:15-alpine
 
-
-логика
-PUT
-/api/v1/shopping-cart
-
-приходит это
-private final UUID shoppingCartId;
-private final Map<UUID, Long> products;
-
-если имя пустое , ошибка
-если телеги  нет, ошибка
-добавляем в телегу мапу
+# db warehouse
+docker run -d --name warehouse_db -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=warehouse_db -p 5434:5432 --restart unless-stopped postgres:15-alpine
 

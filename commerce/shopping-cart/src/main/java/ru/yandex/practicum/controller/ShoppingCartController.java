@@ -51,7 +51,7 @@ public class ShoppingCartController {
         ShoppingCartDto dto = cartService.changeQuantity(username, request.getProductId(), request.getNewQuantity());
         return ResponseEntity.ok(dto);
     }
-    
+
     @GetMapping
     public ResponseEntity<ShoppingCartDto> getShoppingCart(
             @RequestParam("username") String username) {
