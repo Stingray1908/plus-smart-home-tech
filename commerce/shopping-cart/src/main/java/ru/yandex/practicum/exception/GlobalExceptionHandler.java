@@ -45,6 +45,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ex.getHttpStatus()).body(response);
     }
 
+   /* @ExceptionHandler(NotAuthorizedUserException.class)
+    public ResponseEntity<ErrorResponse> handleNotAuthorized(NotAuthorizedUserException ex) {
+        ErrorResponse response = new ErrorResponse(ex.getUserMessage(), ex.getHttpStatus());
+        return ResponseEntity.status(ex.getHttpStatus()).body(response);
+    }*/
+
     @ExceptionHandler(NoProductsInShoppingCartException.class)
     public ResponseEntity<ErrorResponse> handleNoProductsInShoppingCartException(
             NoProductsInShoppingCartException ex,

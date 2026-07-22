@@ -7,7 +7,7 @@ spring:
     show-sql: true       # Видеть SQL запросы в логах (удобно для отладки)
   datasource:
     # Эти значения будут ПЕРЕЗАПИСАНЫ переменными окружения из docker-compose.yml
-    url: jdbc:postgresql://localhost:5433/smart_home_db
+    url: jdbc:postgresql://localhost:5433/cart_db
     username: postgres
     password: password
 
@@ -15,3 +15,6 @@ logging:
   level:
     org.hibernate.SQL: DEBUG
     ru.yandex.practicum: DEBUG
+
+server:
+  port: 8081

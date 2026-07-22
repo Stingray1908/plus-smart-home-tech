@@ -54,6 +54,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
       POSTGRES_DB: cart_db
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
     ports:
       - "5433:5432"   # <-- теперь можно подключиться с хоста на порт 5433
     healthcheck:

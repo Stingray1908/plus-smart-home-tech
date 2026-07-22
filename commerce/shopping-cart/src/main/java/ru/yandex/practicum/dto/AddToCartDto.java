@@ -5,14 +5,13 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.util.Map;
 import java.util.UUID;
 
 @Getter
 @Builder
-@AllArgsConstructor
 @NoArgsConstructor
-public class ChangeProductQuantityRequest {
-
-    private UUID productId;
-    private long newQuantity;
+@AllArgsConstructor
+public class AddToCartDto {
+    private Map<UUID, Long> products;
 }
