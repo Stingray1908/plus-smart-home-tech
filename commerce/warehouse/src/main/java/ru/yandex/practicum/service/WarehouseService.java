@@ -2,6 +2,7 @@ package ru.yandex.practicum.service;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.yandex.practicum.dto.AddressDto;
 import ru.yandex.practicum.dto.BookedProductsDto;
 import ru.yandex.practicum.dto.NewProductInWarehouseRequest;
 import ru.yandex.practicum.dto.ShoppingCartDto;
@@ -10,6 +11,7 @@ import ru.yandex.practicum.exception.ProductInShoppingCartLowQuantityInWarehouse
 import ru.yandex.practicum.exception.SpecifiedProductAlreadyInWarehouseException;
 import ru.yandex.practicum.repository.WarehouseStockRepository;
 
+import java.security.SecureRandom;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -121,6 +123,26 @@ public class WarehouseService {
                 .build();
 
         warehouseStockRepository.save(stock);
+    }
+
+    // 1. Массив возможных адресов
+    private static final String[] ADDRESSES = {"ADDRESS_1", "ADDRESS_2"};
+
+    // 2. Генератор случайных чисел
+    private static final SecureRandom random = new SecureRandom();
+
+    // 3. ВЫБОР АДРЕСА (происходит 1 раз при старте приложения!)
+    private static final String CURRENT_ADDRESS = ADDRESSES[random.nextInt(ADDRESSES.length)];
+
+    public AddressDto getWarehouseAddress() {
+        // 4. Возвращаем DTO, заполняя все поля одним и тем же значением
+        return AddressDto.builder()
+                .country(CURRENT_ADDRESS)
+                .city(CURRENT_ADDRESS)
+                .street(CURRENT_ADDRESS)
+                .house(CURRENT_ADDRESS)
+                .flat(CURRENT_ADDRESS)
+                .build();
     }
 
 }
