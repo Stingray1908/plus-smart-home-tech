@@ -168,6 +168,23 @@ public class CartService {
         return toDto(cart, updatedItems);
     }
 
+    @Transactional(readOnly = true) // readOnly оптимизирует запрос к БД
+    public ShoppingCartDto getShoppingCart(String username) {
+        // 1. Валидируем имя (переиспользуем твой метод)
+        validateUsername(username);
+
+        // 2. Получаем корзину (создаем, если нет - переиспользуем твой метод)
+        ShoppingCart cart = getOrCreateCart(username);
+        UUID cartId = cart.getShoppingCartId();
+
+        // 3. Получаем товары
+        List<CartItem> items = cartItemRepository.findByCartId(cartId);
+
+        // 4. Формируем DTO (переиспользуем твой метод)
+        return toDto(cart, items);
+    }
+
+
     private void validateUsername(String username) {
         if (username == null || username.isBlank()) {
             throw new NotAuthorizedUserException(
