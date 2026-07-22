@@ -65,4 +65,28 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity.status(ex.getHttpStatus()).body(response);
     }
+
+    @ExceptionHandler(CartNotActiveException.class)
+    public ResponseEntity<ErrorResponse> handleCartNotActive(CartNotActiveException ex) {
+        ErrorResponse response = ErrorResponse.builder()
+                .httpStatus(ex.getHttpStatus())
+                .userMessage(ex.getUserMessage())
+                .message(ex.getMessage())
+                .timestamp(Instant.now())
+                .build();
+
+        return ResponseEntity.status(ex.getHttpStatus()).body(response);
+    }
+
+    @ExceptionHandler(CartNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleCartNotFoundException(CartNotFoundException ex) {
+        ErrorResponse response = ErrorResponse.builder()
+                .httpStatus(ex.getHttpStatus())
+                .userMessage(ex.getUserMessage())
+                .message(ex.getMessage())
+                .timestamp(Instant.now())
+                .build();
+
+        return ResponseEntity.status(ex.getHttpStatus()).body(response);
+    }
 }

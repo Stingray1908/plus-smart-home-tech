@@ -25,4 +25,11 @@ public class ShoppingCartController {
         ShoppingCartDto dto = cartService.addToCart(username, request);
         return ResponseEntity.ok(dto);
     }
+
+    @DeleteMapping
+    public ResponseEntity<Void> deactivateCart(@RequestParam("username") String username) {
+        // Проверка на пустой username уже внутри сервиса (кидает NotAuthorizedUserException)
+        cartService.deactivateCart(username);
+        return ResponseEntity.ok().build(); // 200 OK
+    }
 }

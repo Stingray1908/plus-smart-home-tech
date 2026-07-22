@@ -20,4 +20,7 @@ public class ShoppingCart {
 
     @Column(name = "username", nullable = false)
     private String username;
+
+    @Column(name = "is_active", columnDefinition = "boolean default true")
+    private boolean isActive = true;
 }
