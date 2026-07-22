@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.dto.AddToCartDto;
+import ru.yandex.practicum.dto.ChangeProductQuantityRequest;
 import ru.yandex.practicum.dto.RemoveProductsFromCartRequest;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 import ru.yandex.practicum.service.CartService;
@@ -40,6 +41,14 @@ public class ShoppingCartController {
             @RequestBody RemoveProductsFromCartRequest request) {
 
         ShoppingCartDto dto = cartService.removeProductsFromCart(username, request.getProductIds());
+        return ResponseEntity.ok(dto);
+    }
+
+    @PostMapping("/change-quantity")
+    public ResponseEntity<ShoppingCartDto> changeQuantity(
+            @RequestParam("username") String username,
+            @RequestBody ChangeProductQuantityRequest request) {
+        ShoppingCartDto dto = cartService.changeQuantity(username, request.getProductId(), request.getNewQuantity());
         return ResponseEntity.ok(dto);
     }
 }

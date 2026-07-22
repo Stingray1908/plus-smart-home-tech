@@ -15,11 +15,14 @@ public interface CartItemRepository extends JpaRepository<CartItem, Long> {
     @Query("DELETE FROM CartItem c WHERE c.shoppingCart.shoppingCartId = :cartId")
     void deleteByCartId(@Param("cartId") UUID cartId);
 
-    // Явный JPQL вместо findByCartId
     @Query("SELECT c FROM CartItem c WHERE c.shoppingCart.shoppingCartId = :cartId")
     List<CartItem> findByCartId(@Param("cartId") UUID cartId);
 
     @Modifying
     @Query("DELETE FROM CartItem c WHERE c.shoppingCart.shoppingCartId = :cartId AND c.productId IN :productIds")
     void deleteByCartIdAndProductIds(@Param("cartId") UUID cartId, @Param("productIds") List<UUID> productIds);
+
+    @Modifying
+    @Query("DELETE FROM CartItem c WHERE c.id = :id")
+    void deleteById(@Param("id") Long id);
 }

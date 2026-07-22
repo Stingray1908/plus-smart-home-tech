@@ -31,7 +31,6 @@ public class CartService {
         ShoppingCart cart = getOrCreateCart(username);
         UUID cartId = cart.getShoppingCartId();
 
-        // Если корзина неактивна — запрещаем добавление
         if (!cart.isActive()) {
             throw new CartNotActiveException(
                     "User cart is deactivated",
@@ -40,10 +39,8 @@ public class CartService {
             );
         }
 
-        // Удаляем старые товары (полная замена содержимого)
         cartItemRepository.deleteByCartId(cartId);
 
-        // Добавляем новые товары
         List<CartItem> items = request.getProducts().entrySet().stream()
                 .map(e -> CartItem.builder()
                         .shoppingCart(cart)
@@ -62,17 +59,12 @@ public class CartService {
         validateUsername(username);
 
         Optional<ShoppingCart> opt = shoppingCartRepository.findByUsername(username);
-
         if (opt.isEmpty()) {
-            // Вариант 1: выбрасываем ошибку, если корзины нет (строгий режим)
             throw new CartNotFoundException(
                     "Cart not found",
                     "Корзины для пользователя " + username + " не найдено",
                     404
             );
-
-            // Вариант 2 (если нужна идемпотентность): просто ничего не делаем
-            // return;
         }
 
         ShoppingCart cart = opt.get();
@@ -85,7 +77,6 @@ public class CartService {
         validateUsername(username);
 
         if (productIds == null || productIds.isEmpty()) {
-            // Если удалять нечего — просто возвращаем текущую корзину (или пустую, если нет)
             ShoppingCart cart = getOrCreateCart(username);
             List<CartItem> items = cartItemRepository.findByCartId(cart.getShoppingCartId());
             return toDto(cart, items);
@@ -115,14 +106,67 @@ public class CartService {
         }
 
         cartItemRepository.deleteByCartIdAndProductIds(cartId, productIds);
-
         List<CartItem> updatedItems = cartItemRepository.findByCartId(cartId);
         return toDto(cart, updatedItems);
     }
 
+    @Transactional
+    public ShoppingCartDto changeQuantity(String username, UUID productId, long newQuantity) {
+        validateUsername(username);
 
+        if (newQuantity < 0) {
+            throw new IllegalArgumentException("Количество не может быть отрицательным");
+        }
 
+        ShoppingCart cart = getOrCreateCart(username);
+        UUID cartId = cart.getShoppingCartId();
 
+        if (!cart.isActive()) {
+            throw new CartNotActiveException(
+                    "User cart is deactivated",
+                    "Корзина пользователя " + username + " неактивна. Изменение количества товаров запрещено.",
+                    403
+            );
+        }
+
+        List<CartItem> items = cartItemRepository.findByCartId(cartId);
+        List<CartItem> matchingItems = items.stream()
+                .filter(i -> i.getProductId().equals(productId))
+                .collect(Collectors.toList());
+
+        if (matchingItems.isEmpty()) {
+            throw new NoProductsInShoppingCartException(
+                    "Product not found in cart",
+                    "Товар с ID " + productId + " не найден в корзине",
+                    400
+            );
+        }
+
+        long totalQuantity = matchingItems.stream()
+                .mapToLong(CartItem::getQuantity)
+                .sum();
+
+        if (totalQuantity == newQuantity) {
+            // Ничего не меняем
+            return toDto(cart, items);
+        }
+
+        // Удаляем старые строки по ID (теперь метод есть в репо)
+        matchingItems.forEach(item -> cartItemRepository.deleteById(item.getId()));
+
+        // Если новое количество > 0 — добавляем одну строку
+        if (newQuantity > 0) {
+            CartItem newItem = CartItem.builder()
+                    .shoppingCart(cart)
+                    .productId(productId)
+                    .quantity(newQuantity)
+                    .build();
+            cartItemRepository.save(newItem);
+        }
+
+        List<CartItem> updatedItems = cartItemRepository.findByCartId(cartId);
+        return toDto(cart, updatedItems);
+    }
 
     private void validateUsername(String username) {
         if (username == null || username.isBlank()) {
@@ -136,14 +180,12 @@ public class CartService {
 
     private ShoppingCart getOrCreateCart(String username) {
         Optional<ShoppingCart> opt = shoppingCartRepository.findByUsername(username);
-
         if (opt.isPresent()) {
             return opt.get();
         }
 
-        // Создаём новую корзину — она всегда активная
         ShoppingCart newCart = new ShoppingCart();
-        newCart.setShoppingCartId(java.util.UUID.randomUUID());
+        newCart.setShoppingCartId(UUID.randomUUID());
         newCart.setUsername(username);
         newCart.setActive(true);
 
@@ -154,7 +196,8 @@ public class CartService {
         Map<UUID, Long> products = items.stream()
                 .collect(Collectors.toMap(
                         CartItem::getProductId,
-                        CartItem::getQuantity
+                        item -> (long) item.getQuantity(),
+                        (v1, v2) -> v1 + v2
                 ));
 
         return ShoppingCartDto.builder()
