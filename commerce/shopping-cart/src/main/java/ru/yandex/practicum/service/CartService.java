@@ -9,6 +9,7 @@ import ru.yandex.practicum.entity.CartItem;
 import ru.yandex.practicum.entity.ShoppingCart;
 import ru.yandex.practicum.exception.CartNotActiveException;
 import ru.yandex.practicum.exception.CartNotFoundException;
+import ru.yandex.practicum.exception.NoProductsInShoppingCartException;
 import ru.yandex.practicum.exception.NotAuthorizedUserException;
 import ru.yandex.practicum.repository.CartItemRepository;
 import ru.yandex.practicum.repository.ShoppingCartRepository;
@@ -78,7 +79,51 @@ public class CartService {
         cart.setActive(false);
         shoppingCartRepository.save(cart);
     }
-    
+
+    @Transactional
+    public ShoppingCartDto removeProductsFromCart(String username, List<UUID> productIds) {
+        validateUsername(username);
+
+        if (productIds == null || productIds.isEmpty()) {
+            // Если удалять нечего — просто возвращаем текущую корзину (или пустую, если нет)
+            ShoppingCart cart = getOrCreateCart(username);
+            List<CartItem> items = cartItemRepository.findByCartId(cart.getShoppingCartId());
+            return toDto(cart, items);
+        }
+
+        ShoppingCart cart = getOrCreateCart(username);
+        UUID cartId = cart.getShoppingCartId();
+
+        if (!cart.isActive()) {
+            throw new CartNotActiveException(
+                    "User cart is deactivated",
+                    "Корзина пользователя " + username + " неактивна. Удаление товаров запрещено.",
+                    403
+            );
+        }
+
+        Set<UUID> existingIds = cartItemRepository.findByCartId(cartId).stream()
+                .map(CartItem::getProductId)
+                .collect(Collectors.toSet());
+
+        if (productIds.stream().anyMatch(id -> !existingIds.contains(id))) {
+            throw new NoProductsInShoppingCartException(
+                    "Some product IDs not found in cart",
+                    "Некоторые товары не найдены в корзине",
+                    400
+            );
+        }
+
+        cartItemRepository.deleteByCartIdAndProductIds(cartId, productIds);
+
+        List<CartItem> updatedItems = cartItemRepository.findByCartId(cartId);
+        return toDto(cart, updatedItems);
+    }
+
+
+
+
+
     private void validateUsername(String username) {
         if (username == null || username.isBlank()) {
             throw new NotAuthorizedUserException(

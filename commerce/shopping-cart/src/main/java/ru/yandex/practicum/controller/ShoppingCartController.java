@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.dto.AddToCartDto;
+import ru.yandex.practicum.dto.RemoveProductsFromCartRequest;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 import ru.yandex.practicum.service.CartService;
 
@@ -31,5 +32,14 @@ public class ShoppingCartController {
         // Проверка на пустой username уже внутри сервиса (кидает NotAuthorizedUserException)
         cartService.deactivateCart(username);
         return ResponseEntity.ok().build(); // 200 OK
+    }
+
+    @PostMapping("/remove")
+    public ResponseEntity<ShoppingCartDto> removeProducts(
+            @RequestParam String username,
+            @RequestBody RemoveProductsFromCartRequest request) {
+
+        ShoppingCartDto dto = cartService.removeProductsFromCart(username, request.getProductIds());
+        return ResponseEntity.ok(dto);
     }
 }
