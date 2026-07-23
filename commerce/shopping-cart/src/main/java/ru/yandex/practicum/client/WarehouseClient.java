@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import ru.yandex.practicum.dto.BookedProductsDto;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 
-@FeignClient(name = "warehouse-app", url = "http://localhost:8082")
+@FeignClient(name = "warehouse")
 public interface WarehouseClient {
 
     @PostMapping("/api/v1/warehouse/check")
