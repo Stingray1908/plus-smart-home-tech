@@ -18,6 +18,15 @@ import java.util.stream.Collectors;
 @Service
 public class WarehouseService {
 
+    // 1. Массив возможных адресов
+    private static final String[] ADDRESSES = {"ADDRESS_1", "ADDRESS_2"};
+
+    // 2. Генератор случайных чисел
+    private static final SecureRandom random = new SecureRandom();
+
+    // 3. ВЫБОР АДРЕСА (происходит 1 раз при старте приложения!)
+    private static final String CURRENT_ADDRESS = ADDRESSES[random.nextInt(0, ADDRESSES.length)];
+
     private final WarehouseStockRepository warehouseStockRepository;
 
     public WarehouseService(WarehouseStockRepository warehouseStockRepository) {
@@ -124,15 +133,6 @@ public class WarehouseService {
 
         warehouseStockRepository.save(stock);
     }
-
-    // 1. Массив возможных адресов
-    private static final String[] ADDRESSES = {"ADDRESS_1", "ADDRESS_2"};
-
-    // 2. Генератор случайных чисел
-    private static final SecureRandom random = new SecureRandom();
-
-    // 3. ВЫБОР АДРЕСА (происходит 1 раз при старте приложения!)
-    private static final String CURRENT_ADDRESS = ADDRESSES[random.nextInt(ADDRESSES.length)];
 
     public AddressDto getWarehouseAddress() {
         // 4. Возвращаем DTO, заполняя все поля одним и тем же значением

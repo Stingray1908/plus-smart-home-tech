@@ -6,11 +6,11 @@ spring:
   application:
     name: aggregator
   config:
-    import: "optional:configserver:"   # <--- ЭТО ОБЯЗАТЕЛЬНОЕ СВОЙСТВО
+    import: "optional:configserver:"
   cloud:
     config:
       discovery:
-        enabled: true                  # <-- теперь это сработает, потому что import уже есть
+        enabled: true
         service-id: config-server
 
 server:

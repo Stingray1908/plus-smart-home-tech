@@ -1,9 +1,12 @@
 package ru.yandex.practicum.service;
 
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.yandex.practicum.client.WarehouseClient;
 import ru.yandex.practicum.dto.AddToCartDto;
+import ru.yandex.practicum.dto.BookedProductsDto;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 import ru.yandex.practicum.entity.CartItem;
 import ru.yandex.practicum.entity.ShoppingCart;
@@ -23,6 +26,7 @@ public class CartService {
 
     private final CartItemRepository cartItemRepository;
     private final ShoppingCartRepository shoppingCartRepository;
+    private final WarehouseClient warehouseClient;
 
     @Transactional
     public ShoppingCartDto addToCart(String username, AddToCartDto request) {
@@ -39,6 +43,26 @@ public class CartService {
             );
         }
 
+        // 1. Готовим DTO для отправки на склад
+        ShoppingCartDto cartForCheck = ShoppingCartDto.builder()
+                .shoppingCartId(cartId)
+                .products(request.getProducts())
+                .build();
+
+        BookedProductsDto checkResult;
+        try {
+            checkResult = warehouseClient.check(cartForCheck);
+        } catch (FeignException e) {
+            // Пробрасываем ошибку дальше, чтобы пользователь увидел понятное сообщение
+            // FeignException содержит статус и тело ответа от склада
+            throw new IllegalStateException(
+                    "Не удалось добавить товары: проверка склада не пройдена. " + e.getMessage(),
+                    e
+            );
+        }
+
+        // 3. Если исключение не было выброшено — значит, склад подтвердил наличие товаров.
+        // Теперь можно безопасно сохранять в свою БД.
         cartItemRepository.deleteByCartId(cartId);
 
         List<CartItem> items = request.getProducts().entrySet().stream()
@@ -53,6 +77,7 @@ public class CartService {
 
         return toDto(cart, items);
     }
+
 
     @Transactional
     public void deactivateCart(String username) {

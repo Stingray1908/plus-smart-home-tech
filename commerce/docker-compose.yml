@@ -18,34 +18,6 @@ services:
       timeout: 5s
       retries: 30
 
-  shop_app:
-    build:
-      context: /shopping-store
-      dockerfile: Dockerfile
-    container_name: shopping_store_app
-    depends_on:
-      shop_db:
-        condition: service_healthy
-    environment:
-      # Передаем настройки БД прямо сюда. Они перезапишут всё, что в application.yml
-      SPRING_DATASOURCE_URL: jdbc:postgresql://shop_db:5432/shop_db
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: password
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
-      # Если у тебя есть Config Server, раскомментируй и укажи адрес:
-      # SPRING_CLOUD_CONFIG_URI: http://config-server:8888
-
-      # Для отладки
-      SPRING_PROFILES_ACTIVE: docker
-
-    ports:
-      - "8080:8080"
-    # volumes:
-      # - ./target:/app/target
-
-  # volumes:
-  # pgdata:
-
   cart_db:
     image: postgres:15-alpine
     container_name: shopping_cart_db
@@ -65,26 +37,6 @@ services:
         # volumes:
       # - cart_pgdata:/var/lib/postgresql/data
 
-  cart_app:
-    build:
-      context: ./shopping-cart
-      dockerfile: Dockerfile
-    container_name: shopping_cart_app
-    depends_on:
-      cart_db:
-        condition: service_healthy
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://cart_db:5432/cart_db
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: password
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
-      SPRING_PROFILES_ACTIVE: docker
-    ports:
-      - "8081:8080"
-
-# volumes:
-  # stock_pgdata:
-
   warehouse_db:
     image: postgres:15-alpine
     container_name: warehouse_db
@@ -103,23 +55,3 @@ services:
       retries: 30
       # volumes:
       # - stock_pgdata:/var/lib/postgresql/data
-
-  warehouse_app:
-    build:
-      context: ./warehouse
-      dockerfile: Dockerfile
-    container_name: warehouse_app
-    depends_on:
-      warehouse_db:
-        condition: service_healthy
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://:5432/warehouse_db
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: password
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
-      SPRING_PROFILES_ACTIVE: docker
-    ports:
-      - "8082:8080"
-
-  # volumes:
-  # cart_pgdata:
