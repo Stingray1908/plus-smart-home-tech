@@ -1,13 +1,20 @@
 spring:
   application:
     name: shopping-store
+  config:
+    import: "optional:configserver:"
+  cloud:
+    config:
+      discovery:
+        enabled: true
+        service-id: config-server
   jpa:
     hibernate:
       ddl-auto: update  # Автоматически создаст таблицу products при первом запуске
     show-sql: true       # Видеть SQL запросы в логах (удобно для отладки)
   datasource:
     # Эти значения будут ПЕРЕЗАПИСАНЫ переменными окружения из docker-compose.yml
-    url: jdbc:postgresql://localhost:5432/smart_home_db
+    url: jdbc:postgresql://localhost:5432/shop_db
     username: postgres
     password: password
 
@@ -17,4 +24,9 @@ logging:
     ru.yandex.practicum: DEBUG
 
 server:
-  port: 8080
+  port: 0
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
