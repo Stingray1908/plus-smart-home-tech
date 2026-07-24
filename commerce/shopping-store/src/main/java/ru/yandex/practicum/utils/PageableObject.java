@@ -8,11 +8,11 @@ import java.util.List;
 @Data
 @Builder
 public class PageableObject {
-    Long offset;                     // integer($int64)
-    List<SortObject> sort;           // [SortObject{...}]
+    Long offset;
+    List<SortObject> sort;
     boolean unpaged;
     boolean paged;
-    Integer pageNumber;               // integer($int32)
-    Integer pageSize;                 // integer($int32)
+    Integer pageNumber;
+    Integer pageSize;
 }
 
