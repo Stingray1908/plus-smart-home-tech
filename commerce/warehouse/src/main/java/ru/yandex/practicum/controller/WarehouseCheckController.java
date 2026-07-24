@@ -18,7 +18,7 @@ public class WarehouseCheckController implements WarehouseServiceApi{
     private final WarehouseService warehouseService;
 
     @Override
-    public ResponseEntity<BookedProductsDto> check(ShoppingCartDto cart) {
+    public ResponseEntity<BookedProductsDto> check(@RequestBody ShoppingCartDto cart) {
         BookedProductsDto result = warehouseService.checkCart(cart);
         return ResponseEntity.ok(result);
     }

@@ -1,4 +1,4 @@
-package ru.yandex.practicum;
+package ru.yandex.practicum.dto;
 
 import java.util.UUID;
 

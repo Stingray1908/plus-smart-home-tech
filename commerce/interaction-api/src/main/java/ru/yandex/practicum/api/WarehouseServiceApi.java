@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import ru.yandex.practicum.dto.BookedProductsDto;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 
-@FeignClient(name = "warehouse")
+@FeignClient(name = "warehouse", path = "/api/v1/warehouse/")
 public interface WarehouseServiceApi {
 
     @PostMapping("/check")

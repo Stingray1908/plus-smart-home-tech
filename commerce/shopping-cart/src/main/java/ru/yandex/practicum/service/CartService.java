@@ -9,10 +9,10 @@ import ru.yandex.practicum.dto.AddToCartDto;
 
 import ru.yandex.practicum.dto.BookedProductsDto;
 import ru.yandex.practicum.dto.ShoppingCartDto;
-import ru.yandex.practicum.cart.exception.CartNotActiveException;
-import ru.yandex.practicum.cart.exception.CartNotFoundException;
-import ru.yandex.practicum.cart.exception.NoProductsInShoppingCartException;
-import ru.yandex.practicum.cart.exception.NotAuthorizedUserException;
+import ru.yandex.practicum.exception.CartNotActiveException;
+import ru.yandex.practicum.exception.CartNotFoundException;
+import ru.yandex.practicum.exception.NoProductsInShoppingCartException;
+import ru.yandex.practicum.exception.NotAuthorizedUserException;
 
 import ru.yandex.practicum.entity.CartItem;
 import ru.yandex.practicum.entity.ShoppingCart;
