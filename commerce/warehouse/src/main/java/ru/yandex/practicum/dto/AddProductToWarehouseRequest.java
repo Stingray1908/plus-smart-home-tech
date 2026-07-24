@@ -13,5 +13,5 @@ import java.util.UUID;
 @Builder
 public class AddProductToWarehouseRequest {
     private UUID productId;
-    private int quantity;
+    private long quantity;
 }

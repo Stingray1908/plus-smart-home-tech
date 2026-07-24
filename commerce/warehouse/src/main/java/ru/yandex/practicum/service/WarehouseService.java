@@ -145,4 +145,24 @@ public class WarehouseService {
                 .build();
     }
 
+    @Transactional
+    public void addQuantityToWarehouse(UUID productId, Long quantity) {
+        if (quantity == null || quantity <= 0) {
+            throw new IllegalArgumentException("Quantity must be positive");
+        }
+
+        WarehouseStock stock = warehouseStockRepository.findByProductId(productId)
+                .orElseThrow(() -> new ProductInShoppingCartLowQuantityInWarehouse(
+                        "Product not found in warehouse: " + productId,
+                        "Нет информации о товаре на складе",
+                        400,
+                        null
+                ));
+
+        stock.setQuantity(stock.getQuantity() + quantity);
+        // save не обязателен: Spring Data JPA автоматически сохранит изменения при @Transactional,
+        // но можно оставить для ясности:
+        warehouseStockRepository.save(stock);
+    }
+
 }

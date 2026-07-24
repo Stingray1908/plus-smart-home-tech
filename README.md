@@ -17,4 +17,8 @@ assertions │                 26 │                21 │
 assertions │                 26 │                15 │
 assertions │                 26 │                13 │
 assertions │                 26 │                11 │
-assertions │                 26 │                00 │
+assertions │                 26 │                9 │
+assertions │                 26 │                0 │
+assertions │                 26 │                0 │
+assertions │                 26 │                0 │
+assertions │                 26 │                0 │
