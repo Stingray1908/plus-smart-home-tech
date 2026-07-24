@@ -1,16 +1,17 @@
-package ru.yandex.practicum.dto;
+package ru.yandex.practicum;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.UUID;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class BookedProductsDto {
-    private double deliveryWeight;
-    private double deliveryVolume;
-    private boolean fragile;
+public class AddProductToWarehouseRequest {
+    private UUID productId;
+    private int quantity;
 }

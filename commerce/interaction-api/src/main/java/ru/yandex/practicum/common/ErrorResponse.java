@@ -1,10 +1,8 @@
-package ru.yandex.practicum.exception;
+package ru.yandex.practicum.common;
 
 import lombok.Builder;
 import lombok.Data;
 
-import java.time.Instant;
-import java.util.List;
 /*
 @Data
 @Builder

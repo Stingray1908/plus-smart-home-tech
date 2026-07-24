@@ -6,7 +6,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
-import ru.yandex.practicum.dto.ProductDto;
+import ru.yandex.practicum.ProductDto;
 import ru.yandex.practicum.entity.Product;
 import ru.yandex.practicum.enums.ProductCategory;
 import ru.yandex.practicum.enums.QuantityState;

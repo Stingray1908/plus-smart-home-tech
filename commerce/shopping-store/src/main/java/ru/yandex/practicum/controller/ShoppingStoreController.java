@@ -5,10 +5,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import ru.yandex.practicum.dto.ProductDto;
-import ru.yandex.practicum.dto.RemoveProductDto;
+import ru.yandex.practicum.ProductDto;
+import ru.yandex.practicum.RemoveProductDto;
 import ru.yandex.practicum.service.ProductService;
-import ru.yandex.practicum.dto.SetProductQuantityStateRequest;
+import ru.yandex.practicum.SetProductQuantityStateRequest;
 
 import java.util.List;
 import java.util.UUID;

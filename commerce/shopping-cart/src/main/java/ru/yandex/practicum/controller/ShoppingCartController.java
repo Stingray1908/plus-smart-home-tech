@@ -3,14 +3,12 @@ package ru.yandex.practicum.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import ru.yandex.practicum.dto.AddToCartDto;
-import ru.yandex.practicum.dto.ChangeProductQuantityRequest;
-import ru.yandex.practicum.dto.RemoveProductsFromCartRequest;
-import ru.yandex.practicum.dto.ShoppingCartDto;
+
+import ru.yandex.practicum.cart.dto.AddToCartDto;
+import ru.yandex.practicum.cart.dto.ChangeProductQuantityRequest;
+import ru.yandex.practicum.cart.dto.RemoveProductsFromCartRequest;
+import ru.yandex.practicum.cart.dto.ShoppingCartDto;
 import ru.yandex.practicum.service.CartService;
-
-
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/shopping-cart")

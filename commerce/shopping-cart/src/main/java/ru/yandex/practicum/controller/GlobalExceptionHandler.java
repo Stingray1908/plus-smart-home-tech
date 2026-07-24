@@ -1,9 +1,14 @@
-package ru.yandex.practicum.exception;
+package ru.yandex.practicum.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import ru.yandex.practicum.cart.exception.CartNotActiveException;
+import ru.yandex.practicum.cart.exception.CartNotFoundException;
+import ru.yandex.practicum.cart.exception.NoProductsInShoppingCartException;
+import ru.yandex.practicum.cart.exception.NotAuthorizedUserException;
+import ru.yandex.practicum.common.ErrorResponse;
 
 import java.time.Instant;
 

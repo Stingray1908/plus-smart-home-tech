@@ -1,6 +1,6 @@
     package ru.yandex.practicum.mapper;
 
-    import ru.yandex.practicum.dto.ProductDto;
+    import ru.yandex.practicum.ProductDto;
     import ru.yandex.practicum.entity.Product;
 
     public class ProductMapper {
