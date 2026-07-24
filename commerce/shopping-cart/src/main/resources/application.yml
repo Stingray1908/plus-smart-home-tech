@@ -4,6 +4,9 @@ spring:
   config:
     import: "optional:configserver:"
   cloud:
+    openfeign:
+      circuitbreaker:
+        enabled: true
     config:
       discovery:
         enabled: true
@@ -29,3 +32,15 @@ logging:
   level:
     org.hibernate.SQL: DEBUG
     ru.yandex.practicum: DEBUG
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 50                # сколько последних вызовов смотрим
+        slidingWindowType: COUNT_BASED      # считаем по количеству, а не по времени
+        failureRateThreshold: 50           # если 50% ошибок — закрываем цепь
+        waitDurationInOpenState: 30000     # 30 сек в «открытом» состоянии (сервис не работает)
+        automaticTransitionFromOpenToHalfOpenEnabled: true  # пробуем снова через 30 сек
+        permittedNumberOfCallsInHalfOpenState: 2          # сколько пробных запросов перед решением
+        maxNumberOfBufferedCalls: 100      # буфер запросов

@@ -2,6 +2,7 @@ package ru.yandex.practicum.service;
 
 import feign.FeignException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.yandex.practicum.api.WarehouseServiceApi;
@@ -19,6 +20,7 @@ import ru.yandex.practicum.repository.ShoppingCartRepository;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CartService {
@@ -47,13 +49,9 @@ public class CartService {
                 .products(products)
                 .build();
 
-        BookedProductsDto checkResult;
-        try {
-            checkResult = warehouseClient.check(cartForCheck).getBody();
-        } catch (FeignException e) {
-            throw new IllegalStateException(
-                    "Не удалось добавить товары: проверка склада не пройдена. " + e.getMessage(), e
-            );
+        BookedProductsDto checkResult = warehouseClient.check(cartForCheck).getBody();
+        if (checkResult.getDeliveryWeight() < 0) {
+            log.warn("Склад временно недоступен, расчет доставки невозможен");
         }
 
         cartItemRepository.deleteByCartId(cartId);
