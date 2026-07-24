@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.api.StoreServiceApi;
 import ru.yandex.practicum.dto.ProductDto;
+import ru.yandex.practicum.enums.QuantityState;
 import ru.yandex.practicum.service.ProductService;
 import ru.yandex.practicum.dto.SetProductQuantityStateRequest;
 
@@ -57,9 +58,11 @@ public class ShoppingStoreController implements StoreServiceApi {
     }
 
     @PostMapping("/quantityState")
-    public ResponseEntity<Boolean> setQuantityState(@RequestBody SetProductQuantityStateRequest request) {
-        boolean result = productService.setQuantityState(request.getProductId(), request.getQuantityState());
+    public ResponseEntity<Boolean> setQuantityState(
+            @RequestParam UUID productId,
+            @RequestParam QuantityState quantityState
+    ) {
+        boolean result = productService.setQuantityState(productId, quantityState);
         return ResponseEntity.ok(result);
     }
-
 }
