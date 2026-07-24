@@ -10,16 +10,16 @@ import java.util.List;
 @Data
 @Builder
 public class PageProductDto {
-    long totalElements;                 // integer($int64)
-    int totalPages;                      // integer($int32)
+    long totalElements;
+    int totalPages;
     boolean first;
     boolean last;
-    int size;                            // integer($int32)
-    List<ProductDto> content;           // [ProductDto{...}]
-    int number;                          // integer($int32)
-    List<SortObject> sort;              // [SortObject{...}]
-    PageableObject pageable;            // PageableObject{...}
-    int numberOfElements;                // integer($int32)
+    int size;
+    List<ProductDto> content;
+    int number;
+    List<SortObject> sort;
+    PageableObject pageable;
+    int numberOfElements;
     boolean empty;
 }
 

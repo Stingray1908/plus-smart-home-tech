@@ -2,7 +2,6 @@ package ru.yandex.practicum.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-
 import ru.yandex.practicum.enums.ProductCategory;
 import ru.yandex.practicum.enums.ProductState;
 import ru.yandex.practicum.enums.QuantityState;

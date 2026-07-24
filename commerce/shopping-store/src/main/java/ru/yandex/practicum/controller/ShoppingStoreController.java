@@ -1,7 +1,6 @@
 package ru.yandex.practicum.controller;
 
 import lombok.RequiredArgsConstructor;
-
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -9,9 +8,7 @@ import ru.yandex.practicum.api.StoreServiceApi;
 import ru.yandex.practicum.dto.ProductDto;
 import ru.yandex.practicum.enums.QuantityState;
 import ru.yandex.practicum.service.ProductService;
-import ru.yandex.practicum.dto.SetProductQuantityStateRequest;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -37,7 +34,6 @@ public class ShoppingStoreController implements StoreServiceApi {
         Page<ProductDto> result = productService.getProductsByCategory(category, page, size, sort);
         return ResponseEntity.ok(result);
     }
-
 
     @GetMapping("/{productId}")
     public ResponseEntity<ProductDto> getProductById(@PathVariable UUID productId) {

@@ -10,18 +10,12 @@ spring:
         service-id: config-server
   jpa:
     hibernate:
-      ddl-auto: update  # Автоматически создаст таблицу products при первом запуске
-    show-sql: true       # Видеть SQL запросы в логах (удобно для отладки)
+      ddl-auto: update
+    show-sql: true
   datasource:
-    # Эти значения будут ПЕРЕЗАПИСАНЫ переменными окружения из docker-compose.yml
     url: jdbc:postgresql://localhost:5433/cart_db
     username: postgres
     password: password
-
-logging:
-  level:
-    org.hibernate.SQL: DEBUG
-    ru.yandex.practicum: DEBUG
 
 server:
   port: 0
@@ -30,3 +24,8 @@ eureka:
   client:
     serviceUrl:
       defaultZone: http://localhost:8761/eureka/
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    ru.yandex.practicum: DEBUG

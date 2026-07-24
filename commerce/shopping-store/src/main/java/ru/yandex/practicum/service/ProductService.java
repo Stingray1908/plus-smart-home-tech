@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Sort.Direction;
 import org.springframework.stereotype.Service;
 import ru.yandex.practicum.dto.ProductDto;
 import ru.yandex.practicum.entity.Product;
@@ -13,9 +14,7 @@ import ru.yandex.practicum.enums.QuantityState;
 import ru.yandex.practicum.exception.ProductNotFoundException;
 import ru.yandex.practicum.mapper.ProductMapper;
 import ru.yandex.practicum.repository.ProductRepository;
-import org.springframework.data.domain.Sort.Direction;
-import java.util.ArrayList;
-import java.util.List;
+
 import java.util.UUID;
 
 import static ru.yandex.practicum.mapper.ProductMapper.toDto;
@@ -80,19 +79,13 @@ public class ProductService {
         return true;
     }
 
-    /**
-     * Принимает список строк вида "field,asc" или "field,desc".
-     * Если список пуст или null — сортирует по productName ASC.
-     */
     private Sort parseSort(String sortParam) {
         if (sortParam == null || sortParam.isBlank()) {
             return Sort.unsorted();
         }
 
-        // ожидаем формат "field,DESC" или "field,ASC"
-        String[] parts = sortParam.split(",", 2); // максимум 2 части
+        String[] parts = sortParam.split(",", 2);
         if (parts.length != 2) {
-            // можно либо кинуть ошибку, либо вернуть unsorted — зависит от требований
             return Sort.unsorted();
         }
 
@@ -103,7 +96,6 @@ public class ProductService {
         if ("DESC".equals(directionStr)) {
             direction = Direction.DESC;
         } else if (!"ASC".equals(directionStr)) {
-            // если направление неверное — тоже можно кинуть ошибку или оставить ASC
             direction = Direction.ASC;
         }
 
@@ -115,12 +107,12 @@ public class ProductService {
                 .orElseThrow(() -> new ProductNotFoundException(
                         "Product not found with id: " + productId,
                         "Товар с таким идентификатором не найден",
-                                404,
-                                null
-));
+                        404,
+                        null
+                ));
     }
 
-    private Product updateProduct(Product exist, ProductDto update){
+    private Product updateProduct(Product exist, ProductDto update) {
         if (update.getProductName() != null) {
             exist.setProductName(update.getProductName());
         }
