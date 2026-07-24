@@ -19,7 +19,7 @@ public class Product {
     @Id
     private UUID id;
 
-    private double weight;      // вес 1 единицы
-    private double volume;     // объём 1 единицы
-    private boolean fragile;   // хрупкий ли товар
+    private double weight;
+    private double volume;
+    private boolean fragile;
 }

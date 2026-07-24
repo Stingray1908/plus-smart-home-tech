@@ -73,7 +73,6 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
-                <!-- Если у тебя есть main-класс явно, можно указать здесь, но обычно не нужно -->
             </plugin>
         </plugins>
     </build>

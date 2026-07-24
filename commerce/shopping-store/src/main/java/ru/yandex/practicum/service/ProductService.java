@@ -48,7 +48,6 @@ public class ProductService {
         return productsPage.map(ProductMapper::toDto);
     }
 
-
     public ProductDto findById(UUID productId) {
         return toDto(findByIdOrThrowNotFound(productId));
     }
@@ -95,8 +94,6 @@ public class ProductService {
         Direction direction = Direction.ASC;
         if ("DESC".equals(directionStr)) {
             direction = Direction.DESC;
-        } else if (!"ASC".equals(directionStr)) {
-            direction = Direction.ASC;
         }
 
         return Sort.by(new Sort.Order(direction, field));

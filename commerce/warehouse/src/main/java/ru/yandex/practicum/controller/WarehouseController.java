@@ -3,14 +3,14 @@ package ru.yandex.practicum.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import ru.yandex.practicum.api.WarehouseServiceApi;
 import ru.yandex.practicum.dto.*;
 import ru.yandex.practicum.service.WarehouseService;
-import ru.yandex.practicum.api.WarehouseServiceApi;
 
 @RestController
 @RequestMapping("/api/v1/warehouse")
 @RequiredArgsConstructor
-public class WarehouseController implements WarehouseServiceApi{
+public class WarehouseController implements WarehouseServiceApi {
 
     private final WarehouseService warehouseService;
 

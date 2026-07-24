@@ -10,10 +10,9 @@ spring:
         service-id: config-server
   jpa:
     hibernate:
-      ddl-auto: update  # Автоматически создаст таблицу products при первом запуске
-    show-sql: true       # Видеть SQL запросы в логах (удобно для отладки)
+      ddl-auto: update
+    show-sql: true
   datasource:
-    # Эти значения будут ПЕРЕЗАПИСАНЫ переменными окружения из docker-compose.yml
     url: jdbc:postgresql://localhost:5434/warehouse_db
     username: postgres
     password: password

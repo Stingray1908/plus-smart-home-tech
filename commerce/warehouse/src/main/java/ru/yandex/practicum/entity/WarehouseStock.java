@@ -22,8 +22,8 @@ public class WarehouseStock {
     @Column(name = "product_id", unique = true, nullable = false)
     private UUID productId;
 
-    private double weight;      // вес единицы
-    private double volume;      // объём единицы
-    private boolean fragile;    // хрупкость
-    private long quantity;      // остаток
+    private double weight;
+    private double volume;
+    private boolean fragile;
+    private long quantity;
 }
