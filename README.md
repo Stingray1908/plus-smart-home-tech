@@ -16,5 +16,5 @@ docker run -d --name warehouse_db -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD
 assertions │                 26 │                21 │
 assertions │                 26 │                15 │
 assertions │                 26 │                13 │
-assertions │                 26 │                00 │
+assertions │                 26 │                11 │
 assertions │                 26 │                00 │

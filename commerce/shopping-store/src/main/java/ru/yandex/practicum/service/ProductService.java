@@ -13,7 +13,7 @@ import ru.yandex.practicum.enums.QuantityState;
 import ru.yandex.practicum.exception.ProductNotFoundException;
 import ru.yandex.practicum.mapper.ProductMapper;
 import ru.yandex.practicum.repository.ProductRepository;
-
+import org.springframework.data.domain.Sort.Direction;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -32,7 +32,7 @@ public class ProductService {
         return toDto(saved);
     }
 
-    public Page<ProductDto> getProductsByCategory(String category, int page, int size, List<String> sort) {
+    public Page<ProductDto> getProductsByCategory(String category, int page, int size, String sort) {
         ProductCategory parsedCategory;
         try {
             parsedCategory = ProductCategory.valueOf(category.toUpperCase());
@@ -42,12 +42,13 @@ public class ProductService {
             );
         }
 
-        Sort sortObj = parseSort(sort);
+        Sort sortObj = parseSort(sort); // теперь sort — это строка "productName,DESC" или null
         Pageable pageable = PageRequest.of(page, size, sortObj);
 
         Page<Product> productsPage = productRepository.findAllByProductCategory(parsedCategory, pageable);
         return productsPage.map(ProductMapper::toDto);
     }
+
 
     public ProductDto findById(UUID productId) {
         return toDto(findByIdOrThrowNotFound(productId));
@@ -83,42 +84,30 @@ public class ProductService {
      * Принимает список строк вида "field,asc" или "field,desc".
      * Если список пуст или null — сортирует по productName ASC.
      */
-    private Sort parseSort(List<String> sorts) {
-
-        if (sorts == null || sorts.isEmpty()) {
-            return Sort.by("productName").ascending();
+    private Sort parseSort(String sortParam) {
+        if (sortParam == null || sortParam.isBlank()) {
+            return Sort.unsorted();
         }
 
-        List<Sort.Order> orders = new ArrayList<>();
-        for (String s : sorts) {
-            if (s == null || s.trim().isEmpty()) {
-                continue;
-            }
-
-            String[] parts = s.split(",");
-            String property = parts[0].trim();
-            Sort.Direction direction = Sort.Direction.ASC; // по умолчанию ASC
-
-            if (parts.length > 1) {
-                String dir = parts[1].trim().toLowerCase();
-                if ("desc".equals(dir)) {
-                    direction = Sort.Direction.DESC;
-                } else if ("asc".equals(dir)) {
-                    direction = Sort.Direction.ASC;
-                } else {
-                    throw new IllegalArgumentException(
-                            "Неверное направление сортировки в элементе '" + s + "'. Допустимые значения: asc, desc"
-                    );
-                }
-            }
-            orders.add(new Sort.Order(direction, property));
+        // ожидаем формат "field,DESC" или "field,ASC"
+        String[] parts = sortParam.split(",", 2); // максимум 2 части
+        if (parts.length != 2) {
+            // можно либо кинуть ошибку, либо вернуть unsorted — зависит от требований
+            return Sort.unsorted();
         }
 
-        if (orders.isEmpty()) {
-            return Sort.by("productName").ascending();
+        String field = parts[0].trim();
+        String directionStr = parts[1].trim().toUpperCase();
+
+        Direction direction = Direction.ASC;
+        if ("DESC".equals(directionStr)) {
+            direction = Direction.DESC;
+        } else if (!"ASC".equals(directionStr)) {
+            // если направление неверное — тоже можно кинуть ошибку или оставить ASC
+            direction = Direction.ASC;
         }
 
-        return Sort.by(orders);
+        return Sort.by(new Sort.Order(direction, field));
     }
 
     private Product findByIdOrThrowNotFound(UUID productId) {

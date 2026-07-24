@@ -32,7 +32,7 @@ public class ShoppingStoreController implements StoreServiceApi {
             @RequestParam String category,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) List<String> sort
+            @RequestParam(required = false) String sort
     ) {
         Page<ProductDto> result = productService.getProductsByCategory(category, page, size, sort);
         return ResponseEntity.ok(result);
