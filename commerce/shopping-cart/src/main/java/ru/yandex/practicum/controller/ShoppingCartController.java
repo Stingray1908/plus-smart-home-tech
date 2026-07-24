@@ -11,6 +11,7 @@ import ru.yandex.practicum.dto.RemoveProductsFromCartRequest;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 import ru.yandex.practicum.service.CartService;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -40,9 +41,9 @@ public class ShoppingCartController implements CartServiceApi {
     @PostMapping("/remove")
     public ResponseEntity<ShoppingCartDto> removeProducts(
             @RequestParam String username,
-            @RequestBody RemoveProductsFromCartRequest request) {
+            @RequestBody List<UUID> request) {
 
-        ShoppingCartDto dto = cartService.removeProductsFromCart(username, request.getProductIds());
+        ShoppingCartDto dto = cartService.removeProductsFromCart(username, request);
         return ResponseEntity.ok(dto);
     }
 
