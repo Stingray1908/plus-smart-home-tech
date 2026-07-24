@@ -31,7 +31,7 @@ public class CartService {
     private final WarehouseServiceApi warehouseClient;
 
     @Transactional
-    public ShoppingCartDto addToCart(String username, AddToCartDto request) {
+    public ShoppingCartDto addToCart(String username, Map<UUID, Long> products) {
         validateUsername(username);
 
         ShoppingCart cart = getOrCreateCart(username);
@@ -48,7 +48,7 @@ public class CartService {
         // 1. Готовим DTO для отправки на склад
         ShoppingCartDto cartForCheck = ShoppingCartDto.builder()
                 .shoppingCartId(cartId)
-                .products(request.getProducts())
+                .products(products)
                 .build();
 
         BookedProductsDto checkResult;
@@ -67,7 +67,7 @@ public class CartService {
         // Теперь можно безопасно сохранять в свою БД.
         cartItemRepository.deleteByCartId(cartId);
 
-        List<CartItem> items = request.getProducts().entrySet().stream()
+        List<CartItem> items = products.entrySet().stream()
                 .map(e -> CartItem.builder()
                         .shoppingCart(cart)
                         .productId(e.getKey())

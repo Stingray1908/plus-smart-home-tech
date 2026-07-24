@@ -11,6 +11,9 @@ import ru.yandex.practicum.dto.RemoveProductsFromCartRequest;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 import ru.yandex.practicum.service.CartService;
 
+import java.util.Map;
+import java.util.UUID;
+
 @RestController
 @RequestMapping("/api/v1/shopping-cart")
 @RequiredArgsConstructor
@@ -21,9 +24,9 @@ public class ShoppingCartController implements CartServiceApi {
     @PutMapping
     public ResponseEntity<ShoppingCartDto> addToCart(
             @RequestParam("username") String username,
-            @RequestBody AddToCartDto request
+            @RequestBody Map<UUID, Long> products
     ) {
-        ShoppingCartDto dto = cartService.addToCart(username, request);
+        ShoppingCartDto dto = cartService.addToCart(username, products);
         return ResponseEntity.ok(dto);
     }
 
