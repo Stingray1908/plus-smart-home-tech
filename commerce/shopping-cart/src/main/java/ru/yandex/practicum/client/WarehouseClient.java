@@ -1,15 +1,15 @@
-package ru.yandex.practicum.client;
+/*package ru.yandex.practicum.client;
 
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import ru.yandex.practicum.cart.dto.BookedProductsDto;
-import ru.yandex.practicum.cart.dto.ShoppingCartDto;
+import ru.yandex.practicum.dto.BookedProductsDto;
+import ru.yandex.practicum.dto.ShoppingCartDto;
 
 
-@FeignClient(name = "warehouse")
+@FeignCl(name = "warehouse", path = "/api/v1/warehouse")
 public interface WarehouseClient {
 
-    @PostMapping("/api/v1/warehouse/check")
+    @PostMapping("/check")
     BookedProductsDto check(@RequestBody ShoppingCartDto cart);
-}
+}*/

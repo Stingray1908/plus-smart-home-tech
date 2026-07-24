@@ -4,15 +4,15 @@ import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import ru.yandex.practicum.cart.dto.AddToCartDto;
-import ru.yandex.practicum.cart.dto.BookedProductsDto;
+import ru.yandex.practicum.api.WarehouseServiceApi;
+import ru.yandex.practicum.dto.AddToCartDto;
 
-import ru.yandex.practicum.cart.dto.ShoppingCartDto;
+import ru.yandex.practicum.dto.BookedProductsDto;
+import ru.yandex.practicum.dto.ShoppingCartDto;
 import ru.yandex.practicum.cart.exception.CartNotActiveException;
 import ru.yandex.practicum.cart.exception.CartNotFoundException;
 import ru.yandex.practicum.cart.exception.NoProductsInShoppingCartException;
 import ru.yandex.practicum.cart.exception.NotAuthorizedUserException;
-import ru.yandex.practicum.client.WarehouseClient;
 
 import ru.yandex.practicum.entity.CartItem;
 import ru.yandex.practicum.entity.ShoppingCart;
@@ -28,7 +28,7 @@ public class CartService {
 
     private final CartItemRepository cartItemRepository;
     private final ShoppingCartRepository shoppingCartRepository;
-    private final WarehouseClient warehouseClient;
+    private final WarehouseServiceApi warehouseClient;
 
     @Transactional
     public ShoppingCartDto addToCart(String username, AddToCartDto request) {
@@ -53,7 +53,7 @@ public class CartService {
 
         BookedProductsDto checkResult;
         try {
-            checkResult = warehouseClient.check(cartForCheck);
+            checkResult = warehouseClient.check(cartForCheck).getBody();
         } catch (FeignException e) {
             // Пробрасываем ошибку дальше, чтобы пользователь увидел понятное сообщение
             // FeignException содержит статус и тело ответа от склада

@@ -2,10 +2,10 @@ package ru.yandex.practicum.service;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import ru.yandex.practicum.AddressDto;
-import ru.yandex.practicum.BookedProductsDto;
-import ru.yandex.practicum.NewProductInWarehouseRequest;
-import ru.yandex.practicum.ShoppingCartDto;
+import ru.yandex.practicum.dto.AddressDto;
+import ru.yandex.practicum.dto.NewProductInWarehouseRequest;
+import ru.yandex.practicum.dto.BookedProductsDto;
+import ru.yandex.practicum.dto.ShoppingCartDto;
 import ru.yandex.practicum.entity.WarehouseStock;
 import ru.yandex.practicum.exception.ProductInShoppingCartLowQuantityInWarehouse;
 import ru.yandex.practicum.exception.SpecifiedProductAlreadyInWarehouseException;
