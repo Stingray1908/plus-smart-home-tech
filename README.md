@@ -12,3 +12,9 @@ docker run -d --name shopping_cart_db -e POSTGRES_USER=postgres -e POSTGRES_PASS
 # db warehouse
 docker run -d --name warehouse_db -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=warehouse_db -p 5434:5432 --restart unless-stopped postgres:15-alpine
 
+провал
+assertions │                 26 │                21 │
+assertions │                 26 │                15 │
+assertions │                 26 │                00 │
+assertions │                 26 │                00 │
+assertions │                 26 │                00 │

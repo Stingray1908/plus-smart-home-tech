@@ -7,7 +7,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.api.StoreServiceApi;
 import ru.yandex.practicum.dto.ProductDto;
-import ru.yandex.practicum.dto.RemoveProductDto;
 import ru.yandex.practicum.service.ProductService;
 import ru.yandex.practicum.dto.SetProductQuantityStateRequest;
 
@@ -52,8 +51,8 @@ public class ShoppingStoreController implements StoreServiceApi {
     }
 
     @PostMapping("/removeProductFromStore")
-    public ResponseEntity<Boolean> removeProductFromStore(@RequestBody RemoveProductDto request) {
-        boolean result = productService.deactivateProduct(request.getProductId());
+    public ResponseEntity<Boolean> removeProductFromStore(@RequestParam UUID productId) {
+        boolean result = productService.deactivateProduct(productId);
         return ResponseEntity.ok(result);
     }
 
