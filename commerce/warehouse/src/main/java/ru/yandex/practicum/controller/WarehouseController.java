@@ -13,7 +13,7 @@ import ru.yandex.practicum.api.WarehouseServiceApi;
 @RestController
 @RequestMapping("/api/v1/warehouse")
 @RequiredArgsConstructor
-public class WarehouseCheckController implements WarehouseServiceApi{
+public class WarehouseController implements WarehouseServiceApi{
 
     private final WarehouseService warehouseService;
 

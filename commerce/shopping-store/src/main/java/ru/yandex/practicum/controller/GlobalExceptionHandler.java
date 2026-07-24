@@ -1,9 +1,10 @@
-package ru.yandex.practicum.exception;
+package ru.yandex.practicum.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import ru.yandex.practicum.exception.ProductNotFoundException;
 
 import java.time.Instant;
 

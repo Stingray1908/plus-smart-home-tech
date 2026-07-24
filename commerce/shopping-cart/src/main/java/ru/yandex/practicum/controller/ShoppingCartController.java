@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import ru.yandex.practicum.api.CartServiceApi;
 import ru.yandex.practicum.dto.AddToCartDto;
 import ru.yandex.practicum.dto.ChangeProductQuantityRequest;
 import ru.yandex.practicum.dto.RemoveProductsFromCartRequest;
@@ -13,7 +14,7 @@ import ru.yandex.practicum.service.CartService;
 @RestController
 @RequestMapping("/api/v1/shopping-cart")
 @RequiredArgsConstructor
-public class ShoppingCartController {
+public class ShoppingCartController implements CartServiceApi {
 
     private final CartService cartService;
 
