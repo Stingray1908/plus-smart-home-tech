@@ -221,8 +221,8 @@ public class CartService {
         Map<UUID, Long> products = items.stream()
                 .collect(Collectors.toMap(
                         CartItem::getProductId,
-                        item -> (long) item.getQuantity(),
-                        (v1, v2) -> v1 + v2
+                        CartItem    ::getQuantity,
+                        Long::sum
                 ));
 
         return ShoppingCartDto.builder()
