@@ -5,17 +5,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.yandex.practicum.api.WarehouseServiceApi;
-import ru.yandex.practicum.dto.AddToCartDto;
-
 import ru.yandex.practicum.dto.BookedProductsDto;
 import ru.yandex.practicum.dto.ShoppingCartDto;
+import ru.yandex.practicum.entity.CartItem;
+import ru.yandex.practicum.entity.ShoppingCart;
 import ru.yandex.practicum.exception.CartNotActiveException;
 import ru.yandex.practicum.exception.CartNotFoundException;
 import ru.yandex.practicum.exception.NoProductsInShoppingCartException;
 import ru.yandex.practicum.exception.NotAuthorizedUserException;
-
-import ru.yandex.practicum.entity.CartItem;
-import ru.yandex.practicum.entity.ShoppingCart;
 import ru.yandex.practicum.repository.CartItemRepository;
 import ru.yandex.practicum.repository.ShoppingCartRepository;
 
@@ -45,7 +42,6 @@ public class CartService {
             );
         }
 
-        // 1. Готовим DTO для отправки на склад
         ShoppingCartDto cartForCheck = ShoppingCartDto.builder()
                 .shoppingCartId(cartId)
                 .products(products)
@@ -55,16 +51,11 @@ public class CartService {
         try {
             checkResult = warehouseClient.check(cartForCheck).getBody();
         } catch (FeignException e) {
-            // Пробрасываем ошибку дальше, чтобы пользователь увидел понятное сообщение
-            // FeignException содержит статус и тело ответа от склада
             throw new IllegalStateException(
-                    "Не удалось добавить товары: проверка склада не пройдена. " + e.getMessage(),
-                    e
+                    "Не удалось добавить товары: проверка склада не пройдена. " + e.getMessage(), e
             );
         }
 
-        // 3. Если исключение не было выброшено — значит, склад подтвердил наличие товаров.
-        // Теперь можно безопасно сохранять в свою БД.
         cartItemRepository.deleteByCartId(cartId);
 
         List<CartItem> items = products.entrySet().stream()
@@ -79,7 +70,6 @@ public class CartService {
 
         return toDto(cart, items);
     }
-
 
     @Transactional
     public void deactivateCart(String username) {
@@ -159,7 +149,7 @@ public class CartService {
         List<CartItem> items = cartItemRepository.findByCartId(cartId);
         List<CartItem> matchingItems = items.stream()
                 .filter(i -> i.getProductId().equals(productId))
-                .collect(Collectors.toList());
+                .toList();
 
         if (matchingItems.isEmpty()) {
             throw new NoProductsInShoppingCartException(
@@ -174,14 +164,11 @@ public class CartService {
                 .sum();
 
         if (totalQuantity == newQuantity) {
-            // Ничего не меняем
             return toDto(cart, items);
         }
 
-        // Удаляем старые строки по ID (теперь метод есть в репо)
         matchingItems.forEach(item -> cartItemRepository.deleteById(item.getId()));
 
-        // Если новое количество > 0 — добавляем одну строку
         if (newQuantity > 0) {
             CartItem newItem = CartItem.builder()
                     .shoppingCart(cart)
@@ -195,22 +182,16 @@ public class CartService {
         return toDto(cart, updatedItems);
     }
 
-    @Transactional(readOnly = true) // readOnly оптимизирует запрос к БД
+    @Transactional(readOnly = true)
     public ShoppingCartDto getShoppingCart(String username) {
-        // 1. Валидируем имя (переиспользуем твой метод)
         validateUsername(username);
 
-        // 2. Получаем корзину (создаем, если нет - переиспользуем твой метод)
         ShoppingCart cart = getOrCreateCart(username);
         UUID cartId = cart.getShoppingCartId();
 
-        // 3. Получаем товары
         List<CartItem> items = cartItemRepository.findByCartId(cartId);
-
-        // 4. Формируем DTO (переиспользуем твой метод)
         return toDto(cart, items);
     }
-
 
     private void validateUsername(String username) {
         if (username == null || username.isBlank()) {

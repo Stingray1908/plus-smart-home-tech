@@ -3,11 +3,8 @@ package ru.yandex.practicum.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
 import ru.yandex.practicum.api.CartServiceApi;
-import ru.yandex.practicum.dto.AddToCartDto;
 import ru.yandex.practicum.dto.ChangeProductQuantityRequest;
-import ru.yandex.practicum.dto.RemoveProductsFromCartRequest;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 import ru.yandex.practicum.service.CartService;
 
@@ -33,9 +30,8 @@ public class ShoppingCartController implements CartServiceApi {
 
     @DeleteMapping
     public ResponseEntity<Void> deactivateCart(@RequestParam("username") String username) {
-        // Проверка на пустой username уже внутри сервиса (кидает NotAuthorizedUserException)
         cartService.deactivateCart(username);
-        return ResponseEntity.ok().build(); // 200 OK
+        return ResponseEntity.ok().build();
     }
 
     @PostMapping("/remove")
