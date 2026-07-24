@@ -51,7 +51,7 @@ public class ShoppingStoreController implements StoreServiceApi {
     }
 
     @PostMapping("/removeProductFromStore")
-    public ResponseEntity<Boolean> removeProductFromStore(@RequestParam UUID productId) {
+    public ResponseEntity<Boolean> removeProductFromStore(@RequestBody UUID productId) {
         boolean result = productService.deactivateProduct(productId);
         return ResponseEntity.ok(result);
     }
