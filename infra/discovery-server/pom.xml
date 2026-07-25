@@ -15,7 +15,6 @@
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
-            <version>4.1.0</version>
         </dependency>
 
         <dependency>
@@ -29,7 +28,6 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
-                <!-- Если у тебя есть main-класс явно, можно указать здесь, но обычно не нужно -->
             </plugin>
         </plugins>
     </build>
