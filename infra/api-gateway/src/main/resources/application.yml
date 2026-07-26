@@ -17,3 +17,8 @@ eureka:
 server:
   port: 8080
 
+logging:
+  level:
+    ru.yandex.practicum: DEBUG
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.cloud.loadbalancer: DEBUG

@@ -9,6 +9,8 @@ spring:
           uri: lb://shopping-store
           predicates:
             - Path=/api/products/**
+          filters:
+            - PrefixPath=/api/v1/shopping-store
 
         - id: product-service-categories
           uri: lb://product-service

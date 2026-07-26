@@ -10,16 +10,16 @@ import java.util.List;
 @Data
 @Builder
 public class PageProductDto {
-    long totalElements;
-    int totalPages;
-    boolean first;
-    boolean last;
-    int size;
-    List<ProductDto> content;
-    int number;
-    List<SortObject> sort;
-    PageableObject pageable;
-    int numberOfElements;
-    boolean empty;
+    private long totalElements;
+    private int totalPages;
+    private boolean first;
+    private boolean last;
+    private int size;
+    private List<ProductDto> content;
+    private int number;
+    private List<SortObject> sort;
+    private PageableObject pageable;
+    private int numberOfElements;
+    private boolean empty;
 }
 

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import ru.yandex.practicum.dto.ProductDto;
 import ru.yandex.practicum.entity.Product;
 import ru.yandex.practicum.enums.ProductCategory;
+import ru.yandex.practicum.enums.ProductState;
 import ru.yandex.practicum.enums.QuantityState;
 import ru.yandex.practicum.exception.ProductNotFoundException;
 import ru.yandex.practicum.mapper.ProductMapper;
@@ -32,14 +33,7 @@ public class ProductService {
     }
 
     public Page<ProductDto> getProductsByCategory(String category, int page, int size, String sort) {
-        ProductCategory parsedCategory;
-        try {
-            parsedCategory = ProductCategory.valueOf(category.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException(
-                    "Неверная категория. Доступные значения: LIGHTING, CONTROL, SENSORS"
-            );
-        }
+        ProductCategory parsedCategory = ProductCategory.fromString(category);
 
         Sort sortObj = parseSort(sort); // теперь sort — это строка "productName,DESC" или null
         Pageable pageable = PageRequest.of(page, size, sortObj);
@@ -66,7 +60,7 @@ public class ProductService {
 
     public boolean deactivateProduct(UUID productId) {
         Product product = findByIdOrThrowNotFound(productId);
-        product.setProductState(ru.yandex.practicum.enums.ProductState.DEACTIVATE);
+        product.setProductState(ProductState.DEACTIVATE);
         productRepository.save(product);
         return true;
     }
