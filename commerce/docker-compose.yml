@@ -1,0 +1,51 @@
+services:
+
+  shop_db:
+    image: postgres:15-alpine
+    container_name: shopping_store_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: shop_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shop_db"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  cart_db:
+    image: postgres:15-alpine
+    container_name: shopping_cart_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: cart_db
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cart_db"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  warehouse_db:
+    image: postgres:15-alpine
+    container_name: warehouse_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: warehouse_db
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d warehouse_db"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

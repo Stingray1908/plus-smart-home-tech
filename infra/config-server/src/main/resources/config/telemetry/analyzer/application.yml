@@ -1,0 +1,34 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: none
+  datasource:
+    url: jdbc:postgresql://localhost:5432/smart_home_db
+    username: postgres
+    password: password
+  sql:
+    init:
+      mode: always
+      schema: classpath:schema.sql
+      continue-on-error: false
+
+kafka:
+  bootstrap-servers: "localhost:9092"
+  producer:
+    key-serializer: "org.apache.kafka.common.serialization.StringSerializer"
+    value-serializer: "ru.yandex.practicum.config.EventAvroSerializer"
+    acks: "all"
+    retries: 3
+    batch-size: 16384
+  consumer:
+    auto-offset-reset: "earliest"
+    max-poll-interval-ms: 300000
+    session-timeout-ms: 45000
+    enable-auto-commit: false
+  topics:
+    sensorEvents: "telemetry.sensors.v1"
+    snapshots: "telemetry.snapshots.v1"
+    hubs: "telemetry.hubs.v1"
+  groups:
+    snapshotGroup: "analyzer-snapshots-group"
+    hubEventsGroup: "analyzer-hub-events-group"

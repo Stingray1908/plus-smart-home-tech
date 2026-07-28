@@ -1,25 +1,22 @@
-kafka:
-  bootstrap-servers: localhost:9092
+logging:
+  level:
+    org.springframework.boot.context.properties: DEBUG
 
-  topic:
-    sensorEvents: telemetry.sensors.v1
-    snapshots: telemetry.snapshots.v1
-
-  consumer:
-    group-id: smart-home-aggregator-group
-    auto-offset-reset: earliest
-    enable-auto-commit: false
-    max-poll-interval-ms: 300000
-    session-timeout-ms: 10000
-    fetch-min-bytes: 1
-    fetch-max-wait-ms: 500
-
-  producer:
-    acks: 1
-    retries: 3
-    batch-size: 16384
-    key-serializer: org.apache.kafka.common.serialization.StringSerializer
-    value-serializer: ru.yandex.practicum.config.EventAvroSerializer
+spring:
+  application:
+    name: aggregator
+  config:
+    import: "optional:configserver:"
+  cloud:
+    config:
+      discovery:
+        enabled: true
+        service-id: config-server
 
 server:
-  port: 8081
+  port: 0
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/

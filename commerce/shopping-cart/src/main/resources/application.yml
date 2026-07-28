@@ -1,0 +1,46 @@
+spring:
+  application:
+    name: shopping-store
+  config:
+    import: "optional:configserver:"
+  cloud:
+    openfeign:
+      circuitbreaker:
+        enabled: true
+    config:
+      discovery:
+        enabled: true
+        service-id: config-server
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+  datasource:
+    url: jdbc:postgresql://localhost:5433/cart_db
+    username: postgres
+    password: password
+
+server:
+  port: 0
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+    ru.yandex.practicum: DEBUG
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowSize: 50                # сколько последних вызовов смотрим
+        slidingWindowType: COUNT_BASED      # считаем по количеству, а не по времени
+        failureRateThreshold: 50           # если 50% ошибок — закрываем цепь
+        waitDurationInOpenState: 30000     # 30 сек в «открытом» состоянии (сервис не работает)
+        automaticTransitionFromOpenToHalfOpenEnabled: true  # пробуем снова через 30 сек
+        permittedNumberOfCallsInHalfOpenState: 2          # сколько пробных запросов перед решением
+        maxNumberOfBufferedCalls: 100      # буфер запросов
