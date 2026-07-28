@@ -1,19 +1,26 @@
+logging:
+  level:
+    org.springframework.boot.context.properties: DEBUG
+
 spring:
   application:
-    name: smart-home-collector
+    name: collector
+  config:
+    import: "configserver:"   # <--- ЭТО ОБЯЗАТЕЛЬНОЕ СВОЙСТВО
+  cloud:
+    config:
+      discovery:
+        enabled: true                  # <-- теперь это сработает, потому что import уже есть
+        service-id: config-server
 
-kafka:
-  bootstrap-servers: localhost:9092
-  topic:
-    hubEvents: telemetry.hubs.v1
-    sensorEvents: telemetry.sensors.v1
-  producer:
-    acks: 1
-    retries: 3
-    batchSize: 16384
-    keySerializer: org.apache.kafka.common.serialization.StringSerializer
-    valueSerializer: ru.yandex.practicum.config.EventAvroSerializer
+server:
+  port: 0
 
 grpc:
   server:
     port: 59091
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
