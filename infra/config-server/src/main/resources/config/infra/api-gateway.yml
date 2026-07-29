@@ -1,29 +1,111 @@
 spring:
   cloud:
     gateway:
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        cors-configurations:
+          '[/**]':
+            allowed-origins:
+              - http://localhost:3000
+              - http://localhost:5173
+              - http://localhost:8443
+            allowed-methods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowed-headers:
+              - '*'
+            exposed-headers:
+              - Location
+            allow-credentials: true
+            max-age: 3600
       discovery:
         locator:
           enabled: false
+
       routes:
-        - id: product-service-products
+        # Readers
+        - id: SHOPPING-STORE-Reader
           uri: lb://shopping-store
           predicates:
-            - Path=/api/v1/**
+            - Path=/api/v1/shopping-store/**
+            - Method=GET
           filters:
-            - PrefixPath=/shopping-store
+            - name: Retry
+              args:
+                retries: 2
+                statuses:
+                  - BAD_GATEWAY
+                  - SERVICE_UNAVAILABLE
+                  - GATEWAY_TIMEOUT
+                methods:
+                  - GET
+                backoff:
+                  firstBackoff: 100ms
+                  maxBackoff: 500ms
 
-        - id: product-service-categories
-          uri: lb://product-service
+        - id: SHOPPING-CART-Reader
+          uri: lb://shopping-cart
           predicates:
-            - Path=/api/categories/**
+            - Path=/api/v1/shopping-cart/**
+            - Method=GET
+          filters:
+            - name: Retry
+              args:
+                retries: 2
+                statuses:
+                  - BAD_GATEWAY
+                  - SERVICE_UNAVAILABLE
+                  - GATEWAY_TIMEOUT
+                methods:
+                  - GET
+                backoff:
+                  firstBackoff: 100ms
+                  maxBackoff: 500ms
 
-        - id: inventory-service
-          uri: lb://inventory-service
+        - id: WAREHOUSE-Reader
+          uri: lb://warehouse
           predicates:
-            - Path=/api/inventory/**
+            - Path=/api/v1/warehouse/**
+            - Method=GET
+          filters:
+            - name: Retry
+              args:
+                retries: 2
+                statuses:
+                  - BAD_GATEWAY
+                  - SERVICE_UNAVAILABLE
+                  - GATEWAY_TIMEOUT
+                methods:
+                  - GET
+                backoff:
+                  firstBackoff: 100ms
+                  maxBackoff: 500ms
 
-        - id: order-service
-          uri: lb://order-service
+        # Personal
+        - id: SHOPPING-STORE
+          uri: lb://shopping-store
           predicates:
-            - Path=/api/orders/**
+            - Path=/api/v1/shopping-store/**
+
+        - id: SHOPPING-CART
+          uri: lb://shopping-cart
+          predicates:
+            - Path=/api/v1/shopping-cart/**
+
+        - id: WAREHOUSE
+          uri: lb://warehouse
+          predicates:
+            - Path=/api/v1/warehouse/**
+
+        # Common
+        #- id: SHOPPING-CART-WAREHOUSE
+         # uri: lb://shopping-cart
+          #predicates:
+           # - Path=/api/v1/shopping-cart/**
+
+
 
