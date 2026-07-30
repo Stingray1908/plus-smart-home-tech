@@ -24,6 +24,9 @@
         <module>commerce/warehouse</module>
         <module>commerce/interaction-api</module>
         <module>infra/api-gateway</module>
+        <module>commerce/payment</module>
+        <module>commerce/delivery</module>
+        <module>commerce/order</module>
     </modules>
 
     <properties>
