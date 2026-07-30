@@ -13,3 +13,6 @@ docker run -d --name warehouse_db -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD
 
 # db order
 docker run -d --name order_db -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=password -e POSTGRES_DB=order_db -p 5435:5432 --restart unless-stopped postgres:15-alpine
+
+
+создать общего обработчика родителя с отдельным методом
