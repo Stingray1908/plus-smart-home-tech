@@ -3,13 +3,12 @@ package ru.yandex.practicum.controller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.dto.CreateNewOrderRequest;
 import ru.yandex.practicum.dto.OrderDto;
 import ru.yandex.practicum.service.OrderService;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/order")
@@ -26,5 +25,16 @@ public class OrderController {
 
         OrderDto result = orderService.createOrder(request);
         return ResponseEntity.ok(result);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<OrderDto>> getOrders(
+            @RequestParam(name = "username") String username,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        log.debug("Запрос заказов для username={}, page={}, size={}", username, page, size);
+        List<OrderDto> orders = orderService.getOrdersByUsername(username, page, size);
+        return ResponseEntity.ok(orders);
     }
 }

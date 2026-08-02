@@ -51,7 +51,7 @@ public class ShoppingCartController implements CartServiceApi {
         return ResponseEntity.ok(dto);
     }
 
-    @GetMapping
+    @Override
     public ResponseEntity<ShoppingCartDto> getShoppingCart(
             @RequestParam("username") String username) {
 
