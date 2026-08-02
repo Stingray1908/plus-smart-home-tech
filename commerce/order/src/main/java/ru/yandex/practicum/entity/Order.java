@@ -23,7 +23,7 @@ public class Order {
     @GeneratedValue(generator = "UUID")
     @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
     @Column(columnDefinition = "char(36)")
-    private UUID orderId;
+    private UUID id;
 
     @Column(name = "shopping_cart_id", nullable = false)
     private UUID shoppingCartId;
