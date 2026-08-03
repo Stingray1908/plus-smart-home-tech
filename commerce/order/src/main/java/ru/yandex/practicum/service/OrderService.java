@@ -1,5 +1,6 @@
 package ru.yandex.practicum.service;
 
+import jakarta.ws.rs.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -186,6 +187,76 @@ public class OrderService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional
+    public OrderDto returnOrder(ProductReturnRequest request) {
+        if (request.getOrderId() == null || request.getProducts() == null || request.getProducts().isEmpty()) {
+            throw new IllegalArgumentException("Некорректный запрос на возврат");
+        }
+
+        Order order = orderRepository.findById(request.getOrderId())
+                .orElseThrow(() -> new NotFoundException("Заказ не найден: " + request.getOrderId()));
+
+        // Разрешаем возврат только для NEW и ASSEMBLED
+        if (!List.of(OrderStatus.NEW, OrderStatus.ASSEMBLED).contains(order.getState())) {
+            throw new IllegalStateException("Возврат невозможен для статуса: " + order.getState());
+        }
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(request.getOrderId());
+        Map<UUID, OrderItem> itemMap = items.stream()
+                .collect(Collectors.toMap(OrderItem::getProductId, i -> i));
+
+        long newProductPrice = 0;
+
+        for (var entry : request.getProducts().entrySet()) {
+            UUID productId = entry.getKey();
+            Long returnQty = entry.getValue();
+
+            if (returnQty <= 0) {
+                continue;
+            }
+
+            OrderItem item = itemMap.get(productId);
+            if (item == null) {
+                throw new IllegalArgumentException("Товар " + productId + " отсутствует в заказе");
+            }
+
+            long currentQty = item.getQuantity();
+            if (returnQty > currentQty) {
+                throw new IllegalArgumentException(
+                        "Нельзя вернуть больше, чем было в заказе: запрошено " + returnQty + ", в заказе " + currentQty);
+            }
+
+            long newQty = currentQty - returnQty;
+            item.setQuantity(newQty);
+
+            long itemTotal = item.getPriceAtMoment() * newQty;
+            newProductPrice += itemTotal;
+        }
+
+        long deliveryPrice = order.getDeliveryPrice();
+        long newTotalPrice = newProductPrice + deliveryPrice;
+
+        order.setProductPrice(newProductPrice);
+        order.setTotalPrice(newTotalPrice);
+
+        boolean allZero = items.stream().allMatch(i -> i.getQuantity() == 0);
+        if (allZero) {
+            order.setState(OrderStatus.CANCELED);
+        }
+
+        // Отправляем возврат на склад отдельными запросами
+        sendReturnToWarehouse(order, request.getProducts());
+
+        orderRepository.save(order);
+        orderItemRepository.saveAll(items);
+
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> order.getId()));
+
+        return toDto(order, itemsByOrder);
+    }
+
+
 
     // Вспомогательный метод для маппинга с уже загруженными позициями
     private OrderDto toDto(Order order, Map<UUID, List<OrderItem>> itemsByOrder) {
@@ -212,6 +283,28 @@ public class OrderService {
                 .productPrice(order.getProductPrice())
                 .build();
     }
+
+    private void sendReturnToWarehouse(Order order, Map<UUID, Long> returns) {
+        log.info("Отправка возврата на склад: orderId={}, products={}", order.getId(), returns);
+
+        for (var entry : returns.entrySet()) {
+            UUID productId = entry.getKey();
+            Long quantity = entry.getValue();
+
+            if (quantity <= 0) {
+                continue; // защита от некорректных данных
+            }
+
+            var request = AddProductToWarehouseRequest.builder()
+                    .productId(productId)
+                    .quantity(quantity)
+                    .build();
+
+            // Отдельный вызов для каждого товара
+            warehouseServiceApi.addQuantity(request);
+        }
+    }
+
 
 
 

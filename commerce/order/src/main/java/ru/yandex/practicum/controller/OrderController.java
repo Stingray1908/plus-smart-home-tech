@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.dto.CreateNewOrderRequest;
 import ru.yandex.practicum.dto.OrderDto;
+import ru.yandex.practicum.dto.ProductReturnRequest;
 import ru.yandex.practicum.service.OrderService;
 
 import java.util.List;
@@ -36,5 +37,11 @@ public class OrderController {
         log.debug("Запрос заказов для username={}, page={}, size={}", username, page, size);
         List<OrderDto> orders = orderService.getOrdersByUsername(username, page, size);
         return ResponseEntity.ok(orders);
+    }
+
+    @PostMapping("/return")
+    public ResponseEntity<OrderDto> returnOrder(@RequestBody ProductReturnRequest request) {
+        OrderDto dto = orderService.returnOrder(request);
+        return ResponseEntity.ok(dto);
     }
 }

@@ -32,7 +32,7 @@ public class WarehouseController implements WarehouseServiceApi {
         return ResponseEntity.ok(address);
     }
 
-    @PostMapping("/add")
+    @Override
     public ResponseEntity<Void> addQuantity(@RequestBody AddProductToWarehouseRequest request) {
         warehouseService.addQuantityToWarehouse(request.getProductId(), request.getQuantity());
         return ResponseEntity.ok().build();
