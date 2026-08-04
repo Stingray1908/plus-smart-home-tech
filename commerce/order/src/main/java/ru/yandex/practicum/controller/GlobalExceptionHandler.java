@@ -8,6 +8,7 @@ import ru.yandex.practicum.common.ErrorResponse;
 import ru.yandex.practicum.exception.NoOrderFoundException;
 import ru.yandex.practicum.exception.NoSpecifiedProductInWarehouseException;
 import ru.yandex.practicum.exception.NotAuthorizedUserException;
+import ru.yandex.practicum.exception.NotEnoughInfoInOrderToCalculateException;
 
 import java.time.Instant;
 
@@ -47,6 +48,21 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NotAuthorizedUserException.class)
     public ResponseEntity<ErrorResponse> handleNotAuthorizedUserException(
             NotAuthorizedUserException ex,
+            HttpServletRequest request
+    ) {
+        ErrorResponse response = ErrorResponse.builder()
+                .httpStatus(ex.getHttpStatus())
+                .userMessage(ex.getUserMessage())
+                .message(ex.getMessage())
+                .timestamp(Instant.now())
+                .build();
+
+        return ResponseEntity.status(ex.getHttpStatus()).body(response);
+    }
+
+    @ExceptionHandler(NotEnoughInfoInOrderToCalculateException.class)
+    public ResponseEntity<ErrorResponse> handleNotEnoughInfoInOrderToCalculateException(
+            NotEnoughInfoInOrderToCalculateException ex,
             HttpServletRequest request
     ) {
         ErrorResponse response = ErrorResponse.builder()

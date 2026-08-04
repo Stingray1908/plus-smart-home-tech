@@ -3,6 +3,7 @@ package ru.yandex.practicum.api;
 import org.springframework.stereotype.Component;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestBody;
+import ru.yandex.practicum.dto.AddProductToWarehouseRequest;
 import ru.yandex.practicum.dto.BookedProductsDto;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 
@@ -17,5 +18,10 @@ public class WarehouseServiceApiFallback implements WarehouseServiceApi {
         fallbackResult.setFragile(false);
 
         return ResponseEntity.ok(fallbackResult);
+    }
+
+    @Override
+    public ResponseEntity<Void> addQuantity(AddProductToWarehouseRequest request) {
+        return null;
     }
 }
