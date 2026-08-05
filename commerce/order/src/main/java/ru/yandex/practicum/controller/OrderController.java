@@ -58,4 +58,11 @@ public class OrderController {
         return ResponseEntity.ok(dto);
     }
 
+    @PostMapping("/delivery")
+    public ResponseEntity<OrderDto> handleDelivery(@RequestBody UUID orderId) {
+        var dto = orderService.markDelivered(orderId);
+        return ResponseEntity.ok(dto);
+    }
+
+
 }
