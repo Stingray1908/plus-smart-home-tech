@@ -18,7 +18,7 @@ public class Payment {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private UUID id;
 
     @Column(nullable = false)
     private UUID orderId;
@@ -27,16 +27,16 @@ public class Payment {
     private UUID shoppingCartId;
 
     @Column(precision = 19, scale = 2)
-    private BigDecimal productPrice;
+    private Double productPrice;
 
     @Column(precision = 19, scale = 2)
-    private BigDecimal deliveryPrice;
+    private Double deliveryPrice;
 
     @Column(precision = 19, scale = 2)
-    private BigDecimal taxAmount;
+    private Double taxAmount;
 
     @Column(precision = 19, scale = 2, nullable = false)
-    private BigDecimal totalAmount;
+    private Double totalAmount;
 
     @Enumerated(EnumType.STRING)
     @Column(length = 20, nullable = false)

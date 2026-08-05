@@ -8,8 +8,9 @@ import ru.yandex.practicum.api.StoreServiceApi;
 import ru.yandex.practicum.dto.OrderDto;
 import ru.yandex.practicum.dto.PaymentDto;
 import ru.yandex.practicum.dto.ProductDto;
-
-import org.springframework.http.ResponseEntity;
+import ru.yandex.practicum.entity.Payment;
+import ru.yandex.practicum.entity.PaymentStatus;
+import ru.yandex.practicum.repository.PaymentRepository;
 
 import java.util.Map;
 import java.util.UUID;
@@ -20,12 +21,13 @@ import java.util.UUID;
 public class PaymentService {
 
     private final StoreServiceApi storeServiceApi;
+    private final PaymentRepository paymentRepository;
 
     /**
      * Рассчитывает только стоимость товаров в заказе.
      * Возвращает PaymentDto, где:
      * - totalPayment = сумма товаров
-     * - остальные поля = null (так как доставка и налоги ещё не рассчитаны)
+     * - остальные поля = null (доставка и налоги ещё не рассчитаны)
      */
     public PaymentDto calculateProductsTotal(OrderDto dto) {
         Map<UUID, Integer> products = dto.getProducts();
@@ -45,7 +47,7 @@ public class PaymentService {
             UUID productId = entry.getKey();
             int quantity = entry.getValue();
 
-            ResponseEntity<ProductDto> response = storeServiceApi.getProductById(productId);
+            var response = storeServiceApi.getProductById(productId);
 
             if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
                 throw new ValidationException("Не удалось получить цену товара: " + productId);
@@ -67,20 +69,23 @@ public class PaymentService {
     }
 
     /**
-     * Рассчитывает полную стоимость заказа:
+     * Расчёт полной стоимости заказа.
+     * Возвращает только итоговую сумму (Double), как требует ТЗ.
+     *
+     * Формула:
      * - сумма товаров
      * - НДС 10% от суммы товаров
      * - стоимость доставки (заглушка)
      */
     public Double calculateTotalCost(OrderDto orderDto) {
-        // 1. Считаем стоимость товаров (переиспользуем существующую логику)
+        // 1. Считаем стоимость товаров
         PaymentDto productsPayment = calculateProductsTotal(orderDto);
         double productsTotal = productsPayment.getTotalPayment();
 
         // 2. НДС 10% от стоимости товаров
         double vat = productsTotal * 0.10;
 
-        // 3. Стоимость доставки — заглушка. Позже заменить на реальный вызов сервиса доставки
+        // 3. Стоимость доставки — заглушка
         double deliveryTotal = getDeliveryCostStub(orderDto);
 
         // 4. Итоговая сумма
@@ -95,12 +100,51 @@ public class PaymentService {
     }
 
     /**
+     * Создание оплаты:
+     * - расчёт полной стоимости
+     * - сохранение в БД со статусом PENDING
+     * - формирование и возврат PaymentDto
+     */
+    public PaymentDto createPayment(OrderDto request) {
+        double totalAmount = calculateTotalCost(request);
+
+        var paymentEntity = Payment.builder()
+                .orderId(request.getOrderId())
+                .shoppingCartId(request.getShoppingCartId())
+                // Для доставки и налога нужно отдельно посчитать их значения, чтобы корректно сохранить
+                .deliveryPrice(getDeliveryCostStub(request))
+                .taxAmount(calculateProductsTotal(request).getTotalPayment() * 0.10)
+                .totalAmount(totalAmount)
+                .status(PaymentStatus.PENDING)
+                .createdAt(java.time.LocalDateTime.now())
+                .build();
+
+        Payment saved = paymentRepository.save(paymentEntity);
+
+        log.info("Создана оплата для заказа {} со статусом PENDING, итоговая сумма {}",
+                request.getOrderId(), totalAmount);
+
+        return buildPaymentDtoFromEntity(saved);
+    }
+
+    /**
+     * Формирует PaymentDto из сущности Payment.
+     * Вынесено в отдельный метод, чтобы отделить логику маппинга от бизнес-логики.
+     */
+    private PaymentDto buildPaymentDtoFromEntity(Payment payment) {
+        return PaymentDto.builder()
+                .paymentId(payment.getId())
+                .totalPayment(payment.getTotalAmount())
+                .deliveryTotal(payment.getDeliveryPrice())
+                .feeTotal(payment.getTaxAmount())
+                .build();
+    }
+
+    /**
      * Заглушка для стоимости доставки.
      * В будущем тут будет вызов DeliveryService / Feign-клиента.
      */
     private double getDeliveryCostStub(OrderDto orderDto) {
-        // Пример простой логики: фиксированная стоимость или по весу/объёму
-        // Пока вернём 50 рублей, как в примере из задания
-        return 50.0;
+        return 50.0; // фиксированная стоимость
     }
 }
