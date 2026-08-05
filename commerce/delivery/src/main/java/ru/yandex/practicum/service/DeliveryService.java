@@ -7,8 +7,10 @@ import ru.yandex.practicum.dto.AddressDto;
 import ru.yandex.practicum.dto.DeliveryDto;
 import ru.yandex.practicum.dto.DeliveryState;
 import ru.yandex.practicum.entity.Delivery;
+import ru.yandex.practicum.exception.NoDeliveryFoundException;
 import ru.yandex.practicum.repository.DeliveryRepository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -54,6 +56,40 @@ public class DeliveryService {
         }
 
         Delivery saved = deliveryRepository.save(entity);
+        return toDto(saved);
+    }
+
+    public DeliveryDto markDeliverySuccessful(UUID orderId) {
+        if (orderId == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
+
+        // Ищем доставку по orderId: в ТЗ сказано, что в body — идентификатор заказа
+        List<Delivery> deliveries = deliveryRepository.findByOrderId(orderId);
+
+        if (deliveries == null || deliveries.isEmpty()) {
+            // Spring превратит это в 404 с полным стеком (как в примере ТЗ)
+            throw new NoDeliveryFoundException("Доставка для заказа не найдена: " + orderId, 404);
+        }
+
+        // По ТЗ — одна доставка на заказ. Если вдруг их несколько — берем первую
+        Delivery delivery = deliveries.get(0);
+
+        // Опционально: защита от повторного перевода в DELIVERED
+        if (delivery.getDeliveryState() == DeliveryState.DELIVERED) {
+            log.warn("Попытка повторно установить DELIVERED для доставки ID={}", delivery.getId());
+            // Можно либо вернуть текущий DTO, либо выбросить ValidationException (400).
+            // Для курса чаще просто возвращают текущее состояние.
+        } else if (delivery.getDeliveryState() == DeliveryState.FAILED || delivery.getDeliveryState() == DeliveryState.CANCELLED) {
+            // Если уже FAILED/CANCELLED — можно либо запретить, либо разрешить (зависит от ТЗ).
+            // Здесь разрешаем, но логируем.
+            log.info("Смена статуса с {} на DELIVERED для заказа {}", delivery.getDeliveryState(), orderId);
+        }
+
+        delivery.setDeliveryState(DeliveryState.DELIVERED);
+        Delivery saved = deliveryRepository.save(delivery);
+
+        log.info("Доставка заказа {} переведена в DELIVERED", orderId);
         return toDto(saved);
     }
 

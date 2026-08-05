@@ -24,4 +24,16 @@ public class DeliveryController {
         DeliveryDto saved = deliveryService.saveDelivery(dto);
         return ResponseEntity.ok(saved);
     }
+
+    /**
+     * POST /api/v1/delivery/successful
+     * Эмуляция успешной доставки.
+     * Request body: UUID orderId (JSON).
+     * Если доставка не найдена — выбрасывается исключение → Spring отдаст 404 со стеком.
+     */
+    @PostMapping("/successful")
+    public ResponseEntity<DeliveryDto> markDeliverySuccessful(@RequestBody UUID orderId) {
+        DeliveryDto dto = deliveryService.markDeliverySuccessful(orderId);
+        return ResponseEntity.ok(dto);
+    }
 }
