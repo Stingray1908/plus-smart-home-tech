@@ -1,6 +1,5 @@
 package ru.yandex.practicum.service;
 
-import jakarta.ws.rs.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -9,8 +8,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-
 import ru.yandex.practicum.api.CartServiceApi;
 import ru.yandex.practicum.api.PaymentServiceApi;
 import ru.yandex.practicum.api.WarehouseServiceApi;
@@ -23,11 +20,7 @@ import ru.yandex.practicum.repository.OrderItemRepository;
 import ru.yandex.practicum.repository.OrderRepository;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -39,65 +32,33 @@ public class OrderService {
     private final OrderItemRepository orderItemRepository;
     private final WarehouseServiceApi warehouseServiceApi;
     private final CartServiceApi cartServiceApi;
-
-    // Раскомментируй, когда будут готовы сервисы доставки и оплаты:
-    // private final DeliveryServiceApi deliveryServiceApi;
     private final PaymentServiceApi paymentServiceApi;
 
+    // Этот сервис мы теперь используем только для смены статусов
+    private final OrderStatusService statusService;
+
     @Transactional
-    public OrderDto createOrder(CreateNewOrderRequest request) {
+    public OrderDto createOrder(CreateNewOrderRequest request) throws Exception {
         ShoppingCartDto cart = request.getShoppingCart();
         if (cart == null || cart.getProducts().isEmpty()) {
             throw new IllegalArgumentException("Корзина не может быть пустой");
         }
 
-        // 1. Проверка наличия на складе
         var response = warehouseServiceApi.check(cart);
         BookedProductsDto booked = response.getBody();
-        if (booked == null) {
-            throw new IllegalStateException("Склад не вернул данные о наличии");
+        if (booked.getDeliveryWeight() < 0) {
+            log.error("Склад временно недоступен (вернулся fallback)");
         }
 
-        // 2. Резервирование доставки (раскомментируй при готовности сервиса)
-        /*
-        var deliveryResponse = deliveryServiceApi.reserveDelivery(booked);
-        DeliveryResponseDto delivery = deliveryResponse.getBody();
-        if (delivery == null) {
-            throw new IllegalStateException("Сервис доставки не вернул корректный ответ");
-        }
-        Long deliveryPrice = delivery.getPrice();
-        */
-        // Заглушка для доставки
-        Long deliveryPrice = calculateDeliveryPrice(booked);
-
-        // 3. Инициирование оплаты (раскомментируй при готовности сервиса)
         Long productPrice = calculateProductPrice(cart.getProducts());
+        Long deliveryPrice = calculateDeliveryPrice(booked);
         Long totalPrice = productPrice + deliveryPrice;
 
-        /*
-        PaymentRequestDto paymentRequest = PaymentRequestDto.builder()
-                .amount(totalPrice)
-                .build();
-
-        var paymentResponse = paymentServiceApi.initiatePayment(paymentRequest);
-        PaymentResponseDto payment = paymentResponse.getBody();
-        if (payment == null) {
-            throw new IllegalStateException("Сервис оплаты не вернул корректный ответ");
-        }
-        UUID paymentId = payment.getPaymentId();
-        UUID deliveryId = delivery.getDeliveryId();
-        */
-        UUID paymentId = null;
-        UUID deliveryId = null;
-
-        // 4. Создаём заказ
         UUID orderId = UUID.randomUUID();
         Order order = Order.builder()
-                .id(orderId)                 // ✅ исправлено
+                .id(orderId)
                 .shoppingCartId(cart.getShoppingCartId())
-                .state(OrderStatus.NEW)
-                .paymentId(paymentId)
-                .deliveryId(deliveryId)
+                .state(OrderStatus.NEW) // Начальный статус
                 .totalPrice(totalPrice)
                 .productPrice(productPrice)
                 .deliveryPrice(deliveryPrice)
@@ -106,221 +67,138 @@ public class OrderService {
                 .fragile(booked.isFragile())
                 .createdAt(Instant.now())
                 .build();
-
         order = orderRepository.save(order);
 
-        // 5. Создаём позиции заказа (OrderItem)
-        List<OrderItem> items = new ArrayList<>();
-        for (Map.Entry<UUID, Long> entry : cart.getProducts().entrySet()) {
-            OrderItem item = OrderItem.builder()
-                    .order(order)
-                    .productId(entry.getKey())
-                    .quantity(entry.getValue())
-                    .priceAtMoment(calculatePricePerUnit(entry.getKey()))
-                    .build();
-            items.add(item);
-        }
+        Order finalOrder = order;
+        List<OrderItem> items = cart.getProducts().entrySet().stream()
+                .map(entry -> OrderItem.builder()
+                        .order(finalOrder)
+                        .productId(entry.getKey())
+                        .quantity(entry.getValue())
+                        .priceAtMoment(calculatePricePerUnit(entry.getKey()))
+                        .build())
+                .toList();
         orderItemRepository.saveAll(items);
 
         Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(item -> item.getOrder().getId()));
+                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
 
-
-        log.info("Заказ создан: orderId={}, totalPrice={}", order.getCreatedAt(), totalPrice);
-
-        // Вызываем единый метод. Ключ - order.getOrderId(), значение - список позиций этого заказа
+        log.info("Заказ создан: orderId={}", orderId);
         return toDto(order, itemsByOrder);
     }
 
-    /**
-     * Получить заказы пользователя с пагинацией и подгрузкой товаров одним запросом.
-     */
     public List<OrderDto> getOrdersByUsername(String username, int page, int size) {
         if (username == null || username.isBlank()) {
-            log.warn("Запрос без username");
-            throw new NotAuthorizedUserException(
-                    "Username must not be empty",
-                    "Имя пользователя не должно быть пустым",
-                    401
-            );
+            throw new NotAuthorizedUserException("Username must not be empty", "Имя пользователя не должно быть пустым", 401);
         }
 
-        // 1. Получаем корзину по username через Feign
         var cartResponse = cartServiceApi.getShoppingCart(username);
         ShoppingCartDto cart = cartResponse.getBody();
-        if (cart == null) {
-            // Если корзины нет — возвращаем пустой список, а не ошибку (логично для «нет заказов»)
-            return Collections.emptyList();
-        }
-        UUID shoppingCartId = cart.getShoppingCartId();
-        if (shoppingCartId == null) {
-            return Collections.emptyList();
-        }
+        if (cart == null || cart.getShoppingCartId() == null) return Collections.emptyList();
 
-        Pageable pageable = PageRequest.of(
-                page,
-                size,
-                Sort.by(Sort.Direction.DESC, "createdAt")
-        );
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Order> orderPage = orderRepository.findByShoppingCartId(cart.getShoppingCartId(), pageable);
+        if (orderPage.isEmpty()) return Collections.emptyList();
 
-        // 2. Ищем заказы по shoppingCartId
-        Page<Order> orderPage = orderRepository.findByShoppingCartId(shoppingCartId, pageable);
-        List<Order> orders = orderPage.getContent();
-
-        if (orders.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        // 3. Собираем IDs заказов
-        List<UUID> orderIds = orders.stream()
-                .map(Order::getId)
-                .collect(Collectors.toList());
-
-        // 4. Одним запросом получаем ВСЕ позиции для этих заказов
-        List<OrderItem> items = orderItemRepository.findByOrderIdIn(orderIds);
-
-        // 5. Группируем позиции по orderId
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+        List<UUID> orderIds = orderPage.getContent().stream().map(Order::getId).toList();
+        List<OrderItem> allItems = orderItemRepository.findByOrderIdIn(orderIds);
+        Map<UUID, List<OrderItem>> itemsByOrder = allItems.stream()
                 .collect(Collectors.groupingBy(item -> item.getOrder().getId()));
 
-        // 6. Маппим в DTO
-        return orders.stream()
+        return orderPage.getContent().stream()
                 .map(order -> toDto(order, itemsByOrder))
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Transactional
     public OrderDto returnOrder(ProductReturnRequest request) {
-        if (request.getOrderId() == null || request.getProducts() == null || request.getProducts().isEmpty()) {
-            throw new IllegalArgumentException("Некорректный запрос на возврат");
-        }
-
         Order order = orderRepository.findById(request.getOrderId())
-                .orElseThrow(() -> new NotFoundException("Заказ не найден: " + request.getOrderId()));
-
-        // Разрешаем возврат только для NEW и ASSEMBLED
-        if (!List.of(OrderStatus.NEW, OrderStatus.ASSEMBLED).contains(order.getState())) {
-            throw new IllegalStateException("Возврат невозможен для статуса: " + order.getState());
-        }
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден", 400));
 
         List<OrderItem> items = orderItemRepository.findByOrderId(request.getOrderId());
-        Map<UUID, OrderItem> itemMap = items.stream()
-                .collect(Collectors.toMap(OrderItem::getProductId, i -> i));
+        Map<UUID, OrderItem> itemMap = items.stream().collect(Collectors.toMap(OrderItem::getProductId, i -> i));
 
         long newProductPrice = 0;
-
         for (var entry : request.getProducts().entrySet()) {
             UUID productId = entry.getKey();
             Long returnQty = entry.getValue();
-
-            if (returnQty <= 0) {
-                continue;
-            }
+            if (returnQty <= 0) continue;
 
             OrderItem item = itemMap.get(productId);
-            if (item == null) {
-                throw new IllegalArgumentException("Товар " + productId + " отсутствует в заказе");
-            }
+            if (item == null) throw new IllegalArgumentException("Товар не в заказе");
+            if (returnQty > item.getQuantity()) throw new IllegalArgumentException("Нельзя вернуть больше, чем есть");
 
-            long currentQty = item.getQuantity();
-            if (returnQty > currentQty) {
-                throw new IllegalArgumentException(
-                        "Нельзя вернуть больше, чем было в заказе: запрошено " + returnQty + ", в заказе " + currentQty);
-            }
-
-            long newQty = currentQty - returnQty;
-            item.setQuantity(newQty);
-
-            long itemTotal = item.getPriceAtMoment() * newQty;
-            newProductPrice += itemTotal;
+            item.setQuantity(item.getQuantity() - returnQty);
+            newProductPrice += item.getPriceAtMoment() * item.getQuantity();
         }
-
-        long deliveryPrice = order.getDeliveryPrice();
-        long newTotalPrice = newProductPrice + deliveryPrice;
 
         order.setProductPrice(newProductPrice);
-        order.setTotalPrice(newTotalPrice);
+        order.setTotalPrice(newProductPrice + order.getDeliveryPrice());
 
-        boolean allZero = items.stream().allMatch(i -> i.getQuantity() == 0);
-        if (allZero) {
-            order.setState(OrderStatus.CANCELED);
+        if (items.stream().allMatch(i -> i.getQuantity() == 0)) {
+            // Если все товары возвращены — отменяем заказ
+            statusService.transitionTo(request.getOrderId(), OrderStatus.CANCELED);
+        } else {
+            orderRepository.save(order);
         }
-
-        // Отправляем возврат на склад отдельными запросами
-        sendReturnToWarehouse(order, request.getProducts());
-
-        orderRepository.save(order);
         orderItemRepository.saveAll(items);
 
         Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
                 .collect(Collectors.groupingBy(i -> order.getId()));
-
         return toDto(order, itemsByOrder);
     }
 
     @Transactional
     public OrderDto payOrder(UUID orderId) {
-        if (orderId == null) {
-            throw new NoOrderFoundException("Order ID is required", 400);
-        }
-
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException(
-                        "Order not found: " + orderId,
-                        "Заказ не найден",
-                        400,
-                        null
-                ));
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден", 400));
 
-        // Разрешаем оплату только для NEW и ASSEMBLED
-        if (!List.of(OrderStatus.NEW, OrderStatus.ASSEMBLED).contains(order.getState())) {
-            throw new IllegalStateException("Cannot pay order in status: " + order.getState());
-        }
-
-        // Получаем позиции заказа (без N+1)
         List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
         Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
                 .collect(Collectors.groupingBy(i -> order.getId()));
 
-        // Формируем DTO для отправки в платёжный шлюз
         OrderDto orderDtoForPayment = toDto(order, itemsByOrder);
-
-        // КЛЮЧЕВОЙ МОМЕНТ: paymentId и deliveryId = orderId (без генерации)
         orderDtoForPayment.setPaymentId(order.getId());
         orderDtoForPayment.setDeliveryId(order.getId());
 
-        // Отправляем в платёжный сервис
-        //var response = paymentServiceApi.createPayment(orderDtoForPayment);
-        PaymentDto paymentResponse = new PaymentDto();
-        // РЕАЛИЗОВАТЬ!!  response.getBody();
+        // РЕАЛИЗОВАТЬ
+
+        // var response = paymentServiceApi.createPayment(orderDtoForPayment);
+        PaymentDto paymentResponse = new PaymentDto(); //response.getBody();
+
+
+        //РЕАЛИЗОВАТЬ
 
         if (paymentResponse == null || paymentResponse.getPaymentId() == null) {
-            throw new IllegalStateException("Payment service returned invalid response");
+            throw new IllegalStateException("Некорректный ответ платёжного шлюза");
         }
 
-        // Обновляем заказ данными из ответа шлюза
         order.setPaymentId(paymentResponse.getPaymentId());
         order.setTotalPrice(paymentResponse.getTotalPayment());
-        // deliveryTotal и feeTotal можно сохранить отдельно, если в Order есть такие поля
 
-        order.setState(OrderStatus.PAID);
+        // Статус ставим через отдельный сервис, чтобы логика переходов была в одном месте
+        statusService.transitionTo(order.getId(), OrderStatus.PAID);
 
-        orderRepository.save(order);
+        log.info("Оплата успешна: orderId={}, paymentId={}", order.getId(), order.getPaymentId());
 
-        log.info("Order {} paid successfully, paymentId={}", order.getId(), order.getPaymentId());
-
-        // Возвращаем актуальный DTO
         return toDto(order, itemsByOrder);
     }
 
+    private void sendReturnToWarehouse(Map<UUID, Long> returns) {
+        for (var entry : returns.entrySet()) {
+            warehouseServiceApi.addQuantity(AddProductToWarehouseRequest.builder()
+                    .productId(entry.getKey())
+                    .quantity(entry.getValue())
+                    .build());
+        }
+    }
 
-
-
-    // Вспомогательный метод для маппинга с уже загруженными позициями
     private OrderDto toDto(Order order, Map<UUID, List<OrderItem>> itemsByOrder) {
-        List<OrderItem> orderItems = itemsByOrder.getOrDefault(order.getId(), Collections.emptyList());
+        // ИСПРАВЛЕНО: ключ — order.getId()
+        List<OrderItem> currentItems = itemsByOrder.getOrDefault(order.getId(), Collections.emptyList());
 
-        Map<UUID, Integer> productsMap = orderItems.stream()
+        Map<UUID, Integer> productsMap = currentItems.stream()
+                .filter(i -> i.getQuantity() > 0)
                 .collect(Collectors.toMap(
                         OrderItem::getProductId,
                         item -> item.getQuantity().intValue()
@@ -342,39 +220,7 @@ public class OrderService {
                 .build();
     }
 
-    private void sendReturnToWarehouse(Order order, Map<UUID, Long> returns) {
-        log.info("Отправка возврата на склад: orderId={}, products={}", order.getId(), returns);
-
-        for (var entry : returns.entrySet()) {
-            UUID productId = entry.getKey();
-            Long quantity = entry.getValue();
-
-            if (quantity <= 0) {
-                continue; // защита от некорректных данных
-            }
-
-            var request = AddProductToWarehouseRequest.builder()
-                    .productId(productId)
-                    .quantity(quantity)
-                    .build();
-
-            // Отдельный вызов для каждого товара
-            warehouseServiceApi.addQuantity(request);
-        }
-    }
-
-    // Заглушки для расчёта цен
-    private Long calculateProductPrice(Map<UUID, Long> products) {
-        return 1000L;
-    }
-
-    private Long calculateDeliveryPrice(BookedProductsDto booked) {
-        double base = 200;
-        double weightFactor = booked.getDeliveryWeight() * 5;
-        return (long) (base + weightFactor);
-    }
-
-    private Long calculatePricePerUnit(UUID productId) {
-        return 100L;
-    }
+    private Long calculateProductPrice(Map<UUID, Long> products) { return 1000L; }
+    private Long calculateDeliveryPrice(BookedProductsDto b) { return (long) (200 + b.getDeliveryWeight() * 5); }
+    private Long calculatePricePerUnit(UUID id) { return 100L; }
 }
