@@ -12,16 +12,11 @@ public class WarehouseServiceApiFallback implements WarehouseServiceApi {
 
     @Override
     public ResponseEntity<BookedProductsDto> check(@RequestBody ShoppingCartDto cart) {
-        BookedProductsDto fallbackResult = new BookedProductsDto();
-        fallbackResult.setDeliveryWeight(-1.0);
-        fallbackResult.setDeliveryVolume(-1.0);
-        fallbackResult.setFragile(false);
-
-        return ResponseEntity.ok(fallbackResult);
+        return ResponseEntity.status(503).build();
     }
 
     @Override
-    public ResponseEntity<Void> addQuantity(AddProductToWarehouseRequest request) {
-        return null;
+    public ResponseEntity<Void> addQuantity(@RequestBody AddProductToWarehouseRequest request) {
+        return ResponseEntity.status(503).build();
     }
 }

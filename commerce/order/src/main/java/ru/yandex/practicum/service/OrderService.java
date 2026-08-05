@@ -46,9 +46,6 @@ public class OrderService {
 
         var response = warehouseServiceApi.check(cart);
         BookedProductsDto booked = response.getBody();
-        if (booked.getDeliveryWeight() < 0) {
-            log.error("Склад временно недоступен (вернулся fallback)");
-        }
 
         Long productPrice = calculateProductPrice(cart.getProducts());
         Long deliveryPrice = calculateDeliveryPrice(booked);

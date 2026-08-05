@@ -50,9 +50,6 @@ public class CartService {
                 .build();
 
         BookedProductsDto checkResult = warehouseClient.check(cartForCheck).getBody();
-        if (checkResult.getDeliveryWeight() < 0) {
-            log.warn("Склад временно недоступен, расчет доставки невозможен");
-        }
 
         cartItemRepository.deleteByCartId(cartId);
 
