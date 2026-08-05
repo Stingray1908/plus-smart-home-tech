@@ -1,5 +1,6 @@
 package ru.yandex.practicum.controller;
 
+import feign.FeignException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
@@ -67,5 +68,17 @@ public class GlobalExceptionHandler {
                 .build();
 
         return ResponseEntity.status(ex.getHttpStatus()).body(response);
+    }
+
+    @ExceptionHandler(FeignException.class)
+    public ResponseEntity<ErrorResponse> handleFeignException(FeignException ex, HttpServletRequest request) {
+
+        ErrorResponse response = ErrorResponse.builder()
+                .httpStatus(503)
+                .userMessage("Сервис склада временно недоступен")
+                .message(ex.getMessage())
+                .timestamp(Instant.now())
+                .build();
+        return ResponseEntity.status(ex.status()).body(response);
     }
 }

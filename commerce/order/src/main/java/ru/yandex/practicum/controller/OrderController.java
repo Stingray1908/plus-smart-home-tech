@@ -51,4 +51,11 @@ public class OrderController {
         OrderDto dto = orderService.payOrder(orderId);
         return ResponseEntity.ok(dto);
     }
+
+    @PostMapping("/payment/failed")
+    public ResponseEntity<OrderDto> handlePaymentFailed(@RequestBody UUID orderId) {
+        var dto = orderService.markPaymentFailed(orderId);
+        return ResponseEntity.ok(dto);
+    }
+
 }
