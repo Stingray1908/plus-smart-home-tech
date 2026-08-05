@@ -13,7 +13,7 @@ import java.util.UUID;
 @Builder
 public class PaymentDto {
     private UUID paymentId;
-    private Long totalPayment;
-    private Long deliveryTotal;
-    private Long feeTotal;
+    private Double totalPayment;
+    private Double deliveryTotal;
+    private Double feeTotal;
 }
