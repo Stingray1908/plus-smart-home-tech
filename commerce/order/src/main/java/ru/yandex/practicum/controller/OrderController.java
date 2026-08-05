@@ -81,4 +81,10 @@ public class OrderController {
         var dto = orderService.calculateTotal(orderId);
         return ResponseEntity.ok(dto);
     }
+
+    @PostMapping("/calculate/delivery")
+    public ResponseEntity<OrderDto> handleCalculateDelivery(@RequestBody UUID orderId) {
+        var dto = orderService.calculateDelivery(orderId);
+        return ResponseEntity.ok(dto);
+    }
 }

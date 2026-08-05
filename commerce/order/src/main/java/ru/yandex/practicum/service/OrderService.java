@@ -307,6 +307,55 @@ public class OrderService {
         return toDto(order, itemsByOrder);
     }
 
+    @Transactional(readOnly = true) // readOnly, потому что мы только считаем, не меняем состояние
+    public OrderDto calculateDelivery(UUID orderId) {
+        if (orderId == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+
+        // Если нужно пересчитывать вес/объём по текущему составу — можно вызвать warehouseServiceApi.check(...)
+        // Сейчас берём уже сохранённые значения из заказа
+        long deliveryPrice = calculateDeliveryPrice(new BookedProductsDto(
+                order.getDeliveryWeight(),
+                order.getDeliveryVolume(),
+                order.isFragile()
+        ));
+
+        // Пересчитываем productPrice на основе позиций (чтобы вернуть полный актуальный DTO)
+        long productPrice = items.stream()
+                .mapToLong(item -> item.getPriceAtMoment() * item.getQuantity())
+                .sum();
+
+        long totalPrice = productPrice + deliveryPrice;
+
+        // Создаём временную копию order с пересчитанными ценами для DTO (без сохранения в БД)
+        Order dtoOrder = new Order();
+        dtoOrder.setId(order.getId());
+        dtoOrder.setShoppingCartId(order.getShoppingCartId());
+        dtoOrder.setState(order.getState());
+        dtoOrder.setDeliveryWeight(order.getDeliveryWeight());
+        dtoOrder.setDeliveryVolume(order.getDeliveryVolume());
+        dtoOrder.setFragile(order.getFragile());
+        dtoOrder.setProductPrice(productPrice);
+        dtoOrder.setDeliveryPrice(deliveryPrice);
+        dtoOrder.setTotalPrice(totalPrice);
+        dtoOrder.setPaymentId(order.getPaymentId());
+        dtoOrder.setDeliveryId(order.getDeliveryId());
+        dtoOrder.setCreatedAt(order.getCreatedAt());
+
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
+
+        log.info("Рассчитана стоимость доставки для заказа {}: deliveryPrice={}", orderId, deliveryPrice);
+        return toDto(dtoOrder, itemsByOrder);
+    }
+
+
 
     private OrderDto toDto(Order order, Map<UUID, List<OrderItem>> itemsByOrder) {
         List<OrderItem> currentItems = itemsByOrder.getOrDefault(order.getId(), Collections.emptyList());
