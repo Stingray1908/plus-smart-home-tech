@@ -44,4 +44,10 @@ public class DeliveryController {
         DeliveryDto dto = deliveryService.markDeliveryPicked(orderId);
         return ResponseEntity.ok(dto);
     }
+
+    @PostMapping("/failed")
+    public ResponseEntity<DeliveryDto> markDeliveryFailed(@RequestBody UUID orderId) {
+        DeliveryDto dto = deliveryService.markDeliveryFailed(orderId);
+        return ResponseEntity.ok(dto);
+    }
 }

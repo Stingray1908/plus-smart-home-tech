@@ -126,6 +126,36 @@ public class DeliveryService {
         return toDto(saved);
     }
 
+    public DeliveryDto markDeliveryFailed(UUID orderId) {
+        if (orderId == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
+
+        List<Delivery> deliveries = deliveryRepository.findByOrderId(orderId);
+
+        if (deliveries == null || deliveries.isEmpty()) {
+            // Это даст 404 с полным стеком (как в ТЗ)
+            throw new NoDeliveryFoundException("Доставка для заказа не найдена: " + orderId, 404);
+        }
+
+        Delivery delivery = deliveries.get(0);
+
+        // Логирование, если пытаемся перевести в FAILED уже финальный статус
+        if (delivery.getDeliveryState() == DeliveryState.DELIVERED) {
+            log.warn("Попытка установить FAILED для доставки, которая уже в DELIVERED. Заказ: {}", orderId);
+            // Можно либо запретить, либо разрешить — здесь разрешаем, но с предупреждением
+        } else if (delivery.getDeliveryState() == DeliveryState.FAILED) {
+            log.info("Доставка заказа {} уже в статусе FAILED", orderId);
+            return toDto(delivery);
+        }
+
+        delivery.setDeliveryState(DeliveryState.FAILED);
+        Delivery saved = deliveryRepository.save(delivery);
+
+        log.info("Доставка заказа {} переведена в FAILED", orderId);
+        return toDto(saved);
+    }
+
     private void fillAddress(Delivery entity, AddressDto addr, boolean isFrom) {
         if (addr == null) return;
         if (isFrom) {
