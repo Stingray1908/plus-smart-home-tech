@@ -65,8 +65,14 @@ public class OrderController {
     }
 
     @PostMapping("/delivery/failed")
-    public ResponseEntity<?> handleDeliveryFailed(@RequestBody UUID orderId) {
+    public ResponseEntity<OrderDto> handleDeliveryFailed(@RequestBody UUID orderId) {
         var dto = orderService.markDeliveryFailed(orderId);
+        return ResponseEntity.ok(dto);
+    }
+
+    @PostMapping("/completed")
+    public ResponseEntity<OrderDto> handleOrderCompleted(@RequestBody UUID orderId) {
+        var dto = orderService.markCompleted(orderId);
         return ResponseEntity.ok(dto);
     }
 }
