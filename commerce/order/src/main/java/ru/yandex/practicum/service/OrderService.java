@@ -270,6 +270,43 @@ public class OrderService {
         return toDto(order, itemsByOrder);
     }
 
+    @Transactional(readOnly = true) // readOnly, потому что мы только считаем, не меняем состояние
+    public OrderDto calculateTotal(UUID orderId) {
+        if (orderId == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
+
+        // Пересчитываем цены на основе текущих позиций в заказе
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+
+        long productPrice = items.stream()
+                .mapToLong(item -> item.getPriceAtMoment() * item.getQuantity())
+                .sum();
+
+        long deliveryPrice = calculateDeliveryPrice(new BookedProductsDto(
+                order.getDeliveryWeight(),
+                order.getDeliveryVolume(),
+                order.getFragile()
+        ));
+
+        long totalPrice = productPrice + deliveryPrice;
+
+        // Обновляем значения в сущности (если нужно хранить актуальные суммы в БД)
+        order.setProductPrice(productPrice);
+        order.setDeliveryPrice(deliveryPrice);
+        order.setTotalPrice(totalPrice);
+        // orderRepository.save(order); // Раскомментируй, если по ТЗ нужно сохранять пересчитанные суммы
+
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
+
+        log.info("Пересчитана стоимость заказа {}: totalPrice={}", orderId, totalPrice);
+        return toDto(order, itemsByOrder);
+    }
+
 
     private OrderDto toDto(Order order, Map<UUID, List<OrderItem>> itemsByOrder) {
         List<OrderItem> currentItems = itemsByOrder.getOrDefault(order.getId(), Collections.emptyList());

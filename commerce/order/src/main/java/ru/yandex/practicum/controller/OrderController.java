@@ -75,4 +75,10 @@ public class OrderController {
         var dto = orderService.markCompleted(orderId);
         return ResponseEntity.ok(dto);
     }
+
+    @PostMapping("/calculate/total")
+    public ResponseEntity<OrderDto> handleCalculateTotal(@RequestBody UUID orderId) {
+        var dto = orderService.calculateTotal(orderId);
+        return ResponseEntity.ok(dto);
+    }
 }
