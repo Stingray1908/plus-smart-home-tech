@@ -323,7 +323,7 @@ public class OrderService {
         long deliveryPrice = calculateDeliveryPrice(new BookedProductsDto(
                 order.getDeliveryWeight(),
                 order.getDeliveryVolume(),
-                order.isFragile()
+                order.getFragile()
         ));
 
         // Пересчитываем productPrice на основе позиций (чтобы вернуть полный актуальный DTO)
@@ -355,7 +355,25 @@ public class OrderService {
         return toDto(dtoOrder, itemsByOrder);
     }
 
+    @Transactional
+    public OrderDto markAssembled(UUID orderId) {
+        if (orderId == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
 
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
+
+        // Логика смены статуса инкапсулирована в OrderStatusService
+        statusService.transitionTo(orderId, OrderStatus.ASSEMBLED);
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
+
+        log.info("Заказ {} собран, статус установлен: ASSEMBLED", orderId);
+        return toDto(order, itemsByOrder);
+    }
 
     private OrderDto toDto(Order order, Map<UUID, List<OrderItem>> itemsByOrder) {
         List<OrderItem> currentItems = itemsByOrder.getOrDefault(order.getId(), Collections.emptyList());

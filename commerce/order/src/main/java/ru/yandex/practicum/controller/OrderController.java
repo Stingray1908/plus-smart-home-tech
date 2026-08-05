@@ -87,4 +87,10 @@ public class OrderController {
         var dto = orderService.calculateDelivery(orderId);
         return ResponseEntity.ok(dto);
     }
+
+    @PostMapping("/assembly")
+    public ResponseEntity<OrderDto> handleAssembly(@RequestBody UUID orderId) {
+        var dto = orderService.markAssembled(orderId);
+        return ResponseEntity.ok(dto);
+    }
 }
