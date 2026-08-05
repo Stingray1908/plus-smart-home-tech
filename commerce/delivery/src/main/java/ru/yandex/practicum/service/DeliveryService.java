@@ -93,6 +93,39 @@ public class DeliveryService {
         return toDto(saved);
     }
 
+    public DeliveryDto markDeliveryPicked(UUID orderId) {
+        if (orderId == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
+
+        List<Delivery> deliveries = deliveryRepository.findByOrderId(orderId);
+
+        if (deliveries == null || deliveries.isEmpty()) {
+            // Это даст 404 с полным стеком (как в ТЗ)
+            throw new NoDeliveryFoundException("Доставка для заказа не найдена: " + orderId, 404);
+        }
+
+        Delivery delivery = deliveries.get(0);
+
+        // Логика статусов:
+        // - Если уже DELIVERED/CANCELLED/FAILED — можно либо запретить, либо просто логировать и не менять.
+        // Для учебной задачи чаще всего просто ставим IN_PROGRESS, если не финальный.
+        if (delivery.getDeliveryState() == DeliveryState.DELIVERED
+                || delivery.getDeliveryState() == DeliveryState.CANCELLED
+                || delivery.getDeliveryState() == DeliveryState.FAILED) {
+            log.warn("Попытка перевести в IN_PROGRESS доставку в финальном статусе {} для заказа {}",
+                    delivery.getDeliveryState(), orderId);
+            // Можно вернуть текущий DTO без изменений
+            return toDto(delivery);
+        }
+
+        delivery.setDeliveryState(DeliveryState.IN_PROGRESS);
+        Delivery saved = deliveryRepository.save(delivery);
+
+        log.info("Доставка заказа {} переведена в IN_PROGRESS", orderId);
+        return toDto(saved);
+    }
+
     private void fillAddress(Delivery entity, AddressDto addr, boolean isFrom) {
         if (addr == null) return;
         if (isFrom) {

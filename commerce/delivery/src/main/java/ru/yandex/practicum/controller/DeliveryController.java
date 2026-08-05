@@ -6,6 +6,8 @@ import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.dto.DeliveryDto;
 import ru.yandex.practicum.service.DeliveryService;
 
+import java.util.UUID;
+
 @RestController
 @RequestMapping("/api/v1/delivery")
 @RequiredArgsConstructor
@@ -34,6 +36,12 @@ public class DeliveryController {
     @PostMapping("/successful")
     public ResponseEntity<DeliveryDto> markDeliverySuccessful(@RequestBody UUID orderId) {
         DeliveryDto dto = deliveryService.markDeliverySuccessful(orderId);
+        return ResponseEntity.ok(dto);
+    }
+
+    @PostMapping("/picked")
+    public ResponseEntity<DeliveryDto> markDeliveryPicked(@RequestBody UUID orderId) {
+        DeliveryDto dto = deliveryService.markDeliveryPicked(orderId);
         return ResponseEntity.ok(dto);
     }
 }
