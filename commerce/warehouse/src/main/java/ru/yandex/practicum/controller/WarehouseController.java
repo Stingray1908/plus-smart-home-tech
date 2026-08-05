@@ -26,7 +26,7 @@ public class WarehouseController implements WarehouseServiceApi {
         return ResponseEntity.ok().build();
     }
 
-    @GetMapping("/address")
+    @Override
     public ResponseEntity<AddressDto> getAddress() {
         AddressDto address = warehouseService.getWarehouseAddress();
         return ResponseEntity.ok(address);

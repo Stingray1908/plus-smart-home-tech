@@ -3,9 +3,11 @@ package ru.yandex.practicum.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import ru.yandex.practicum.api.WarehouseServiceApi;
 import ru.yandex.practicum.dto.AddressDto;
 import ru.yandex.practicum.dto.DeliveryDto;
 import ru.yandex.practicum.dto.DeliveryState;
+import ru.yandex.practicum.dto.OrderDto;
 import ru.yandex.practicum.entity.Delivery;
 import ru.yandex.practicum.exception.NoDeliveryFoundException;
 import ru.yandex.practicum.repository.DeliveryRepository;
@@ -20,6 +22,7 @@ import java.util.UUID;
 public class DeliveryService {
 
     private final DeliveryRepository deliveryRepository;
+    private final WarehouseServiceApi warehouseServiceApi;
 
     public DeliveryDto saveDelivery(DeliveryDto dto) {
         UUID deliveryId = dto.getDeliveryId();
@@ -155,6 +158,67 @@ public class DeliveryService {
         log.info("Доставка заказа {} переведена в FAILED", orderId);
         return toDto(saved);
     }
+
+    public Double calculateCost(OrderDto orderDto) {
+        if (orderDto.getOrderId() == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
+
+        // 1. Ищем доставку по заказу (требование ТЗ: 404 если нет доставки)
+        List<Delivery> deliveries = deliveryRepository.findByOrderId(orderDto.getOrderId());
+        if (deliveries == null || deliveries.isEmpty()) {
+            throw new NoDeliveryFoundException("Доставка для заказа не найдена: " + orderDto.getOrderId(), 404);
+        }
+        Delivery delivery = deliveries.get(0);
+
+        // 2. Получаем адрес склада через Feign
+        AddressDto warehouseAddress = warehouseServiceApi.getAddress().getBody();
+        String warehouseName = warehouseAddress.getCity(); // или street/country — зависит от того, что в ТЗ считается «названием склада»
+
+        // 3. Базовая ставка
+        double baseRate = 5.0;
+        double currentSum = baseRate;
+
+        // 4. Коэффициент склада: ADDRESS_1 → ×1, ADDRESS_2 → ×2, потом складываем с базовой ставкой
+        double warehouseMultiplier = 1.0;
+        if ("ADDRESS_1".equals(warehouseName)) {
+            warehouseMultiplier = 1.0;
+        } else if ("ADDRESS_2".equals(warehouseName)) {
+            warehouseMultiplier = 2.0;
+        } else {
+            // Если склад с другим именем — можно либо кинуть ошибку, либо взять 1.0.
+            // Для курса логичнее кинуть ошибку.
+            throw new IllegalArgumentException("Неизвестный адрес склада: " + warehouseName);
+        }
+
+        currentSum = currentSum + (baseRate * warehouseMultiplier);
+
+        // 5. Хрупкость: умножаем текущую сумму на 0.2 и прибавляем
+        boolean isFragile = Boolean.TRUE.equals(orderDto.getFragile());
+        if (isFragile) {
+            currentSum = currentSum + (currentSum * 0.2);
+        }
+
+        // 6. Вес: добавляем вес × 0.3
+        double weight = orderDto.getDeliveryWeight() != null ? orderDto.getDeliveryWeight() : 0.0;
+        currentSum = currentSum + (weight * 0.3);
+
+        // 7. Объём: добавляем объём × 0.2
+        double volume = orderDto.getDeliveryVolume() != null ? orderDto.getDeliveryVolume() : 0.0;
+        currentSum = currentSum + (volume * 0.2);
+
+        // 8. Сравнение улиц: если fromStreet (склад) != toStreet (доставка) → добавляем currentSum × 0.2
+        String fromStreet = warehouseAddress.getStreet();
+        String toStreet = delivery.getToStreet(); // адрес доставки хранится в сущности Delivery
+
+        if (fromStreet != null && toStreet != null && !fromStreet.equalsIgnoreCase(toStreet)) {
+            currentSum = currentSum + (currentSum * 0.2);
+        }
+
+        log.info("Рассчитана стоимость доставки для заказа {}: {}", orderDto.getOrderId(), currentSum);
+        return currentSum;
+    }
+
 
     private void fillAddress(Delivery entity, AddressDto addr, boolean isFrom) {
         if (addr == null) return;

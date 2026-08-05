@@ -3,7 +3,9 @@ package ru.yandex.practicum.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import ru.yandex.practicum.api.DeliveryServiceApi;
 import ru.yandex.practicum.dto.DeliveryDto;
+import ru.yandex.practicum.dto.OrderDto;
 import ru.yandex.practicum.service.DeliveryService;
 
 import java.util.UUID;
@@ -11,7 +13,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/delivery")
 @RequiredArgsConstructor
-public class DeliveryController {
+public class DeliveryController implements DeliveryServiceApi {
 
     private final DeliveryService deliveryService;
 
@@ -21,7 +23,7 @@ public class DeliveryController {
      * Request body: DeliveryDto (с deliveryId, orderId, адресами, deliveryState)
      * Response: DeliveryDto
      */
-    @PutMapping
+    @Override
     public ResponseEntity<DeliveryDto> createOrUpdateDelivery(@RequestBody DeliveryDto dto) {
         DeliveryDto saved = deliveryService.saveDelivery(dto);
         return ResponseEntity.ok(saved);
@@ -33,21 +35,27 @@ public class DeliveryController {
      * Request body: UUID orderId (JSON).
      * Если доставка не найдена — выбрасывается исключение → Spring отдаст 404 со стеком.
      */
-    @PostMapping("/successful")
+    @Override
     public ResponseEntity<DeliveryDto> markDeliverySuccessful(@RequestBody UUID orderId) {
         DeliveryDto dto = deliveryService.markDeliverySuccessful(orderId);
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/picked")
+    @Override
     public ResponseEntity<DeliveryDto> markDeliveryPicked(@RequestBody UUID orderId) {
         DeliveryDto dto = deliveryService.markDeliveryPicked(orderId);
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/failed")
+    @Override
     public ResponseEntity<DeliveryDto> markDeliveryFailed(@RequestBody UUID orderId) {
         DeliveryDto dto = deliveryService.markDeliveryFailed(orderId);
         return ResponseEntity.ok(dto);
+    }
+
+    @Override
+    public ResponseEntity<Double> calculateDeliveryCost(@RequestBody OrderDto dto) {
+        Double cost = deliveryService.calculateCost(dto);
+        return ResponseEntity.ok(cost);
     }
 }
