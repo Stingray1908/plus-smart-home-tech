@@ -6,7 +6,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import ru.yandex.practicum.dto.ShoppingCartDto;
 
-@FeignClient(name = "payment", path = "/api/v1/payment")
-public interface PaymentServiceApi {
+@FeignClient(name = "delivery", path = "/api/v1/delivery")
+public interface DeliveryServiceApi {
 
 }
