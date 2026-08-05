@@ -10,6 +10,7 @@ import ru.yandex.practicum.dto.ProductReturnRequest;
 import ru.yandex.practicum.service.OrderService;
 
 import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/order")
@@ -42,6 +43,12 @@ public class OrderController {
     @PostMapping("/return")
     public ResponseEntity<OrderDto> returnOrder(@RequestBody ProductReturnRequest request) {
         OrderDto dto = orderService.returnOrder(request);
+        return ResponseEntity.ok(dto);
+    }
+
+    @PostMapping("/payment")
+    public ResponseEntity<OrderDto> payOrder(@RequestBody UUID orderId) {
+        OrderDto dto = orderService.payOrder(orderId);
         return ResponseEntity.ok(dto);
     }
 }

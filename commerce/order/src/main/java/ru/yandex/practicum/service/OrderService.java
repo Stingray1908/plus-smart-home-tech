@@ -12,10 +12,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 
 import ru.yandex.practicum.api.CartServiceApi;
+import ru.yandex.practicum.api.PaymentServiceApi;
 import ru.yandex.practicum.api.WarehouseServiceApi;
 import ru.yandex.practicum.dto.*;
 import ru.yandex.practicum.entity.Order;
 import ru.yandex.practicum.entity.OrderItem;
+import ru.yandex.practicum.exception.NoOrderFoundException;
 import ru.yandex.practicum.exception.NotAuthorizedUserException;
 import ru.yandex.practicum.repository.OrderItemRepository;
 import ru.yandex.practicum.repository.OrderRepository;
@@ -40,7 +42,7 @@ public class OrderService {
 
     // Раскомментируй, когда будут готовы сервисы доставки и оплаты:
     // private final DeliveryServiceApi deliveryServiceApi;
-    // private final PaymentServiceApi paymentServiceApi;
+    private final PaymentServiceApi paymentServiceApi;
 
     @Transactional
     public OrderDto createOrder(CreateNewOrderRequest request) {
@@ -256,11 +258,67 @@ public class OrderService {
         return toDto(order, itemsByOrder);
     }
 
+    @Transactional
+    public OrderDto payOrder(UUID orderId) {
+        if (orderId == null) {
+            throw new NoOrderFoundException("Order ID is required", 400);
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException(
+                        "Order not found: " + orderId,
+                        "Заказ не найден",
+                        400,
+                        null
+                ));
+
+        // Разрешаем оплату только для NEW и ASSEMBLED
+        if (!List.of(OrderStatus.NEW, OrderStatus.ASSEMBLED).contains(order.getState())) {
+            throw new IllegalStateException("Cannot pay order in status: " + order.getState());
+        }
+
+        // Получаем позиции заказа (без N+1)
+        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> order.getId()));
+
+        // Формируем DTO для отправки в платёжный шлюз
+        OrderDto orderDtoForPayment = toDto(order, itemsByOrder);
+
+        // КЛЮЧЕВОЙ МОМЕНТ: paymentId и deliveryId = orderId (без генерации)
+        orderDtoForPayment.setPaymentId(order.getId());
+        orderDtoForPayment.setDeliveryId(order.getId());
+
+        // Отправляем в платёжный сервис
+        //var response = paymentServiceApi.createPayment(orderDtoForPayment);
+        PaymentDto paymentResponse = new PaymentDto();
+        // РЕАЛИЗОВАТЬ!!  response.getBody();
+
+        if (paymentResponse == null || paymentResponse.getPaymentId() == null) {
+            throw new IllegalStateException("Payment service returned invalid response");
+        }
+
+        // Обновляем заказ данными из ответа шлюза
+        order.setPaymentId(paymentResponse.getPaymentId());
+        order.setTotalPrice(paymentResponse.getTotalPayment());
+        // deliveryTotal и feeTotal можно сохранить отдельно, если в Order есть такие поля
+
+        order.setState(OrderStatus.PAID);
+
+        orderRepository.save(order);
+
+        log.info("Order {} paid successfully, paymentId={}", order.getId(), order.getPaymentId());
+
+        // Возвращаем актуальный DTO
+        return toDto(order, itemsByOrder);
+    }
+
+
 
 
     // Вспомогательный метод для маппинга с уже загруженными позициями
     private OrderDto toDto(Order order, Map<UUID, List<OrderItem>> itemsByOrder) {
-        List<OrderItem> orderItems = itemsByOrder.getOrDefault(order.getDeliveryId(), Collections.emptyList());
+        List<OrderItem> orderItems = itemsByOrder.getOrDefault(order.getId(), Collections.emptyList());
 
         Map<UUID, Integer> productsMap = orderItems.stream()
                 .collect(Collectors.toMap(
@@ -304,9 +362,6 @@ public class OrderService {
             warehouseServiceApi.addQuantity(request);
         }
     }
-
-
-
 
     // Заглушки для расчёта цен
     private Long calculateProductPrice(Map<UUID, Long> products) {
