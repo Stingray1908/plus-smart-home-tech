@@ -7,7 +7,6 @@ import ru.yandex.practicum.dto.OrderDto;
 import ru.yandex.practicum.dto.PaymentDto;
 import ru.yandex.practicum.service.PaymentService;
 
-
 @RestController
 @RequestMapping("/api/v1/payment")
 @RequiredArgsConstructor
@@ -24,4 +23,16 @@ public class PaymentController {
         PaymentDto response = paymentService.calculateProductsTotal(request);
         return ResponseEntity.ok(response);
     }
+
+    /**
+     * POST /api/v1/payment/totalCost
+     * Расчёт полной стоимости заказа: товары + НДС (10%) + доставка.
+     */
+    @PostMapping("/totalCost")
+    public ResponseEntity<Double> calculateTotalCost(@RequestBody OrderDto orderDto) {
+        Double totalCost = paymentService.calculateTotalCost(orderDto);
+        return ResponseEntity.ok(totalCost);
+    }
 }
+
+

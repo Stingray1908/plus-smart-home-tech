@@ -65,4 +65,42 @@ public class PaymentService {
                 .totalPayment(total)
                 .build();
     }
+
+    /**
+     * Рассчитывает полную стоимость заказа:
+     * - сумма товаров
+     * - НДС 10% от суммы товаров
+     * - стоимость доставки (заглушка)
+     */
+    public Double calculateTotalCost(OrderDto orderDto) {
+        // 1. Считаем стоимость товаров (переиспользуем существующую логику)
+        PaymentDto productsPayment = calculateProductsTotal(orderDto);
+        double productsTotal = productsPayment.getTotalPayment();
+
+        // 2. НДС 10% от стоимости товаров
+        double vat = productsTotal * 0.10;
+
+        // 3. Стоимость доставки — заглушка. Позже заменить на реальный вызов сервиса доставки
+        double deliveryTotal = getDeliveryCostStub(orderDto);
+
+        // 4. Итоговая сумма
+        double finalTotal = productsTotal + vat + deliveryTotal;
+
+        log.debug(
+                "Расчёт полной стоимости: товары={}, НДС={}, доставка={}, итого={}",
+                productsTotal, vat, deliveryTotal, finalTotal
+        );
+
+        return finalTotal;
+    }
+
+    /**
+     * Заглушка для стоимости доставки.
+     * В будущем тут будет вызов DeliveryService / Feign-клиента.
+     */
+    private double getDeliveryCostStub(OrderDto orderDto) {
+        // Пример простой логики: фиксированная стоимость или по весу/объёму
+        // Пока вернём 50 рублей, как в примере из задания
+        return 50.0;
+    }
 }

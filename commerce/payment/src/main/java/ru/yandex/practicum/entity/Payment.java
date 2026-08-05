@@ -1,38 +1,50 @@
 package ru.yandex.practicum.entity;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
 import jakarta.persistence.*;
-import java.time.Instant;
+import lombok.*;
+
+
+import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
 @Table(name = "payments")
 @Data
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Builder
 public class Payment {
 
     @Id
-    @Column(name = "payment_id", nullable = false, unique = true)
-    private UUID paymentId;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
-    @Column(name = "order_id", nullable = false)
+    @Column(nullable = false)
     private UUID orderId;
 
-    // Изменили с Long на Double, чтобы соответствовать ProductDto.price
-    private Double productTotal;
-    private Double deliveryTotal;
-    private Double feeTotal;
-    private Double totalPayment;
+    @Column
+    private UUID shoppingCartId;
+
+    @Column(precision = 19, scale = 2)
+    private BigDecimal productPrice;
+
+    @Column(precision = 19, scale = 2)
+    private BigDecimal deliveryPrice;
+
+    @Column(precision = 19, scale = 2)
+    private BigDecimal taxAmount;
+
+    @Column(precision = 19, scale = 2, nullable = false)
+    private BigDecimal totalAmount;
 
     @Enumerated(EnumType.STRING)
+    @Column(length = 20, nullable = false)
     private PaymentStatus status;
 
-    private Instant createdAt;
-    private Instant paidAt;
+    @Column(updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column
+    private LocalDateTime updatedAt;
 }
