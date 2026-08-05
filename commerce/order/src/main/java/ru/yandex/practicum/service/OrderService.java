@@ -375,6 +375,26 @@ public class OrderService {
         return toDto(order, itemsByOrder);
     }
 
+    @Transactional
+    public OrderDto markAssemblyFailed(UUID orderId) {
+        if (orderId == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
+
+        // Логика смены статуса инкапсулирована в OrderStatusService
+        statusService.transitionTo(orderId, OrderStatus.ASSEMBLY_FAILED);
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
+
+        log.info("Сборка заказа {} завершилась ошибкой, статус установлен: ASSEMBLY_FAILED", orderId);
+        return toDto(order, itemsByOrder);
+    }
+
     private OrderDto toDto(Order order, Map<UUID, List<OrderItem>> itemsByOrder) {
         List<OrderItem> currentItems = itemsByOrder.getOrDefault(order.getId(), Collections.emptyList());
 

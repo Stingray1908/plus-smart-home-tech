@@ -93,4 +93,10 @@ public class OrderController {
         var dto = orderService.markAssembled(orderId);
         return ResponseEntity.ok(dto);
     }
+
+    @PostMapping("/assembly/failed")
+    public ResponseEntity<OrderDto> handleAssemblyFailed(@RequestBody UUID orderId) {
+        var dto = orderService.markAssemblyFailed(orderId);
+        return ResponseEntity.ok(dto);
+    }
 }
