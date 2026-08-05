@@ -26,16 +26,13 @@ public class Payment {
     @Column
     private UUID shoppingCartId;
 
-    @Column(precision = 19, scale = 2)
     private Double productPrice;
 
-    @Column(precision = 19, scale = 2)
     private Double deliveryPrice;
 
-    @Column(precision = 19, scale = 2)
     private Double taxAmount;
 
-    @Column(precision = 19, scale = 2, nullable = false)
+    @Column(nullable = false)
     private Double totalAmount;
 
     @Enumerated(EnumType.STRING)

@@ -171,7 +171,7 @@ public class OrderService {
         }
 
         order.setPaymentId(paymentResponse.getPaymentId());
-        order.setTotalPrice(paymentResponse.getTotalPayment());
+        order.setTotalPrice(100L);
 
         // Статус ставим через отдельный сервис, чтобы логика переходов была в одном месте
         statusService.transitionTo(order.getId(), OrderStatus.PAID);

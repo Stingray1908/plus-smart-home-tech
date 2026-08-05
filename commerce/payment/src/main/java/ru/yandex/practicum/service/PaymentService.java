@@ -4,15 +4,17 @@ import jakarta.validation.ValidationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import ru.yandex.practicum.api.OrderServiceApi;
 import ru.yandex.practicum.api.StoreServiceApi;
 import ru.yandex.practicum.dto.OrderDto;
 import ru.yandex.practicum.dto.PaymentDto;
-import ru.yandex.practicum.dto.ProductDto;
 import ru.yandex.practicum.entity.Payment;
 import ru.yandex.practicum.entity.PaymentStatus;
+import ru.yandex.practicum.exception.PaymentNotFoundException;
 import ru.yandex.practicum.repository.PaymentRepository;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -22,6 +24,7 @@ public class PaymentService {
 
     private final StoreServiceApi storeServiceApi;
     private final PaymentRepository paymentRepository;
+    private final OrderServiceApi orderServiceApi;
 
     /**
      * Рассчитывает только стоимость товаров в заказе.
@@ -138,6 +141,63 @@ public class PaymentService {
                 .deliveryTotal(payment.getDeliveryPrice())
                 .feeTotal(payment.getTaxAmount())
                 .build();
+    }
+
+    public PaymentDto markPaymentSuccess(UUID paymentId) {
+        Optional<Payment> optionalPayment = paymentRepository.findById(paymentId);
+        if (optionalPayment.isEmpty()) {
+            throw new PaymentNotFoundException("Платёж не найден: " + paymentId,
+                    404);
+        }
+
+        Payment payment = optionalPayment.get();
+        if (payment.getStatus() != PaymentStatus.PENDING) {
+            throw new ValidationException(
+                    "Нельзя установить SUCCESS для платежа со статусом: " + payment.getStatus());
+        }
+
+        payment.setStatus(PaymentStatus.SUCCESS);
+        payment.setUpdatedAt(java.time.LocalDateTime.now());
+        Payment saved = paymentRepository.save(payment);
+
+        // Вызываем существующий метод из твоего Feign-клиента
+        try {
+            orderServiceApi.payOrder(saved.getOrderId());
+            log.info("Сервис заказов подтвердил оплату для заказа {}", saved.getOrderId());
+        } catch (Exception e) {
+            log.error("Не удалось уведомить сервис заказов об оплате заказа {}", saved.getOrderId(), e);
+            // Оставляем платёж в SUCCESS — это частый паттерн в учебных задачах
+        }
+
+        return buildPaymentDtoFromEntity(saved);
+    }
+
+    public PaymentDto markPaymentFailed(UUID paymentId) {
+        Optional<Payment> optionalPayment = paymentRepository.findById(paymentId);
+        if (optionalPayment.isEmpty()) {
+            throw new PaymentNotFoundException("Платёж не найден: " + paymentId,
+                    404);
+        }
+
+        Payment payment = optionalPayment.get();
+        if (payment.getStatus() != PaymentStatus.PENDING) {
+            throw new ValidationException(
+                    "Нельзя установить FAILED для платежа со статусом: " + payment.getStatus());
+        }
+
+        payment.setStatus(PaymentStatus.FAILED);
+        payment.setUpdatedAt(java.time.LocalDateTime.now());
+        Payment saved = paymentRepository.save(payment);
+
+        // Используем существующий метод handlePaymentFailed из твоего Feign
+        try {
+            orderServiceApi.handlePaymentFailed(saved.getOrderId());
+            log.info("Сервис заказов уведомлён о неудачной оплате заказа {}", saved.getOrderId());
+        } catch (Exception e) {
+            log.error("Не удалось уведомить сервис заказов о неудачной оплате заказа {}", saved.getOrderId(), e);
+        }
+
+        return buildPaymentDtoFromEntity(saved);
     }
 
     /**

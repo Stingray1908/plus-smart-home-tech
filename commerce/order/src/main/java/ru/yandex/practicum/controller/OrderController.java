@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import ru.yandex.practicum.api.OrderServiceApi;
 import ru.yandex.practicum.dto.CreateNewOrderRequest;
 import ru.yandex.practicum.dto.OrderDto;
 import ru.yandex.practicum.dto.ProductReturnRequest;
@@ -16,11 +17,11 @@ import java.util.UUID;
 @RequestMapping("/api/v1/order")
 @RequiredArgsConstructor
 @Slf4j
-public class OrderController {
+public class OrderController implements OrderServiceApi {
 
     private final OrderService orderService;
 
-    @PutMapping
+    @Override
     public ResponseEntity<OrderDto> createNewOrder(@RequestBody CreateNewOrderRequest request) {
         log.debug("Получен запрос на создание заказа, shoppingCartId={}",
                 request.getShoppingCart() != null ? request.getShoppingCart().getShoppingCartId() : null);
@@ -40,61 +41,61 @@ public class OrderController {
         return ResponseEntity.ok(orders);
     }
 
-    @PostMapping("/return")
+    @Override
     public ResponseEntity<OrderDto> returnOrder(@RequestBody ProductReturnRequest request) {
         OrderDto dto = orderService.returnOrder(request);
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/payment")
+    @Override
     public ResponseEntity<OrderDto> payOrder(@RequestBody UUID orderId) {
         OrderDto dto = orderService.payOrder(orderId);
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/payment/failed")
+    @Override
     public ResponseEntity<OrderDto> handlePaymentFailed(@RequestBody UUID orderId) {
         var dto = orderService.markPaymentFailed(orderId);
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/delivery")
+    @Override
     public ResponseEntity<OrderDto> handleDelivery(@RequestBody UUID orderId) {
         var dto = orderService.markDelivered(orderId);
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/delivery/failed")
+    @Override
     public ResponseEntity<OrderDto> handleDeliveryFailed(@RequestBody UUID orderId) {
         var dto = orderService.markDeliveryFailed(orderId);
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/completed")
+    @Override
     public ResponseEntity<OrderDto> handleOrderCompleted(@RequestBody UUID orderId) {
         var dto = orderService.markCompleted(orderId);
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/calculate/total")
+    @Override
     public ResponseEntity<OrderDto> handleCalculateTotal(@RequestBody UUID orderId) {
         var dto = orderService.calculateTotal(orderId);
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/calculate/delivery")
+    @Override
     public ResponseEntity<OrderDto> handleCalculateDelivery(@RequestBody UUID orderId) {
         var dto = orderService.calculateDelivery(orderId);
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/assembly")
+    @Override
     public ResponseEntity<OrderDto> handleAssembly(@RequestBody UUID orderId) {
         var dto = orderService.markAssembled(orderId);
         return ResponseEntity.ok(dto);
     }
 
-    @PostMapping("/assembly/failed")
+    @Override
     public ResponseEntity<OrderDto> handleAssemblyFailed(@RequestBody UUID orderId) {
         var dto = orderService.markAssemblyFailed(orderId);
         return ResponseEntity.ok(dto);

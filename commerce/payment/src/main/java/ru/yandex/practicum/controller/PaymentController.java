@@ -36,39 +36,37 @@ public class PaymentController {
         return ResponseEntity.ok(totalCost);
     }
 
-        /**
-         * POST /api/v1/payment/productCost
-         * Только расчёт стоимости товаров (для UI).
-         */
-        @PostMapping("/productCost")
-        public ResponseEntity<PaymentDto> calculateProductCost(@RequestBody OrderDto orderDto) {
-            PaymentDto dto = paymentService.calculateProductsTotal(orderDto);
-            return ResponseEntity.ok(dto);
-        }
-
-        /**
-         * POST /api/v1/payment/refund
-         * Эмуляция успешной оплаты от платёжного шлюза.
-         * Логика: найти платёж -> поставить статус SUCCESS -> вызвать сервис заказов.
-         */
-        @PostMapping("/refund")
-        public ResponseEntity<PaymentDto> simulateSuccessPayment(@RequestBody UUID paymentId) {
-            PaymentDto dto = paymentService.markPaymentSuccess(paymentId);
-            return ResponseEntity.ok(dto);
-        }
-
-        /**
-         * POST /api/v1/payment/failed
-         * Эмуляция отказа в оплате от платёжного шлюза.
-         * Логика: найти платёж -> поставить статус FAILED -> вызвать сервис заказов.
-         */
-        @PostMapping("/failed")
-        public ResponseEntity<PaymentDto> simulateFailedPayment(@RequestBody UUID paymentId) {
-            PaymentDto dto = paymentService.markPaymentFailed(paymentId);
-            return ResponseEntity.ok(dto);
-        }
+    /**
+     * POST /api/v1/payment/productCost
+     * Только расчёт стоимости товаров (для UI).
+     */
+    @PostMapping("/productCost")
+    public ResponseEntity<PaymentDto> calculateProductCost(@RequestBody OrderDto orderDto) {
+        PaymentDto dto = paymentService.calculateProductsTotal(orderDto);
+        return ResponseEntity.ok(dto);
     }
 
+    /**
+     * POST /api/v1/payment/refund
+     * Эмуляция успешной оплаты от платёжного шлюза.
+     * Логика: найти платёж -> поставить статус SUCCESS -> вызвать сервис заказов.
+     */
+    @PostMapping("/refund")
+    public ResponseEntity<PaymentDto> simulateSuccessPayment(@RequestBody UUID paymentId) {
+        PaymentDto dto = paymentService.markPaymentSuccess(paymentId);
+        return ResponseEntity.ok(dto);
+    }
+
+    /**
+     * POST /api/v1/payment/failed
+     * Эмуляция отказа в оплате от платёжного шлюза.
+     * Логика: найти платёж -> поставить статус FAILED -> вызвать сервис заказов.
+     */
+    @PostMapping("/failed")
+    public ResponseEntity<PaymentDto> simulateFailedPayment(@RequestBody UUID paymentId) {
+        PaymentDto dto = paymentService.markPaymentFailed(paymentId);
+        return ResponseEntity.ok(dto);
+    }
 }
 
 
