@@ -8,11 +8,13 @@ import ru.yandex.practicum.api.OrderServiceApi;
 import ru.yandex.practicum.api.StoreServiceApi;
 import ru.yandex.practicum.dto.OrderDto;
 import ru.yandex.practicum.dto.PaymentDto;
+import ru.yandex.practicum.dto.ProductDto;
 import ru.yandex.practicum.entity.Payment;
 import ru.yandex.practicum.entity.PaymentStatus;
 import ru.yandex.practicum.exception.PaymentNotFoundException;
 import ru.yandex.practicum.repository.PaymentRepository;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,43 +34,29 @@ public class PaymentService {
      * - totalPayment = сумма товаров
      * - остальные поля = null (доставка и налоги ещё не рассчитаны)
      */
-    public PaymentDto calculateProductsTotal(OrderDto dto) {
-        Map<UUID, Long> products = dto.getProducts();
-
-        if (products == null || products.isEmpty()) {
-            return PaymentDto.builder()
-                    .paymentId(null)
-                    .totalPayment(0.0)
-                    .deliveryTotal(null)
-                    .feeTotal(null)
-                    .build();
+    private double calculateProductsTotal(OrderDto dto) {
+        if (dto.getProducts() == null || dto.getProducts().isEmpty()) {
+            return 0.0;
         }
 
         double total = 0.0;
-
-        for (Map.Entry<UUID, Long> entry : products.entrySet()) {
+        for (var entry : dto.getProducts().entrySet()) {
             UUID productId = entry.getKey();
             Long quantity = entry.getValue();
 
+            // ✅ Реальный вызов к сервису shopping-store через Feign
             var response = storeServiceApi.getProductById(productId);
-
-            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
-                throw new ValidationException("Не удалось получить цену товара: " + productId);
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                throw new IllegalStateException("Не удалось получить продукт id=" + productId);
+            }
+            ProductDto product = response.getBody();
+            if (product == null || product.getPrice() == null) {
+                throw new IllegalStateException("Продукт id=" + productId + " не содержит цены");
             }
 
-            Double price = response.getBody().getPrice();
-            if (price == null || price < 0) {
-                throw new ValidationException("Некорректная цена товара: " + productId);
-            }
-
-            total += price * quantity;
+            total += product.getPrice().doubleValue() * quantity;
         }
-
-        log.debug("Рассчитана стоимость товаров: {}", total);
-
-        return PaymentDto.builder()
-                .totalPayment(total)
-                .build();
+        return total;
     }
 
     /**
@@ -82,8 +70,7 @@ public class PaymentService {
      */
     public Double calculateTotalCost(OrderDto orderDto) {
         // 1. Считаем стоимость товаров
-        PaymentDto productsPayment = calculateProductsTotal(orderDto);
-        double productsTotal = productsPayment.getTotalPayment();
+        Double productsTotal = calculateProductsTotal(orderDto);
 
         // 2. НДС 10% от стоимости товаров
         double vat = productsTotal * 0.10;
@@ -109,26 +96,35 @@ public class PaymentService {
      * - формирование и возврат PaymentDto
      */
     public PaymentDto createPayment(OrderDto request) {
-        double totalAmount = calculateTotalCost(request);
+        double productsTotal = calculateProductsTotal(request);
+        double vat = productsTotal * 0.10;
+        double deliveryTotal = request.getDeliveryPrice() != null
+                ? request.getDeliveryPrice().doubleValue()
+                : 0.0;
 
-        var paymentEntity = Payment.builder()
+        double finalTotal = productsTotal + vat + deliveryTotal;
+
+        Payment payment = Payment.builder()
                 .orderId(request.getOrderId())
                 .shoppingCartId(request.getShoppingCartId())
-                // Для доставки и налога нужно отдельно посчитать их значения, чтобы корректно сохранить
-                .deliveryPrice(getDeliveryCostStub(request))
-                .taxAmount(calculateProductsTotal(request).getTotalPayment() * 0.10)
-                .totalAmount(totalAmount)
+                .productTotal(productsTotal)          // ✅ теперь имя совпадает с ТЗ
+                .deliveryPrice(deliveryTotal)
+                .taxAmount(vat)
+                .totalAmount(finalTotal)
                 .status(PaymentStatus.PENDING)
-                .createdAt(java.time.LocalDateTime.now())
+                .createdAt(LocalDateTime.now())
                 .build();
 
-        Payment saved = paymentRepository.save(paymentEntity);
+        payment = paymentRepository.save(payment);
 
-        log.info("Создана оплата для заказа {} со статусом PENDING, итоговая сумма {}",
-                request.getOrderId(), totalAmount);
-
-        return buildPaymentDtoFromEntity(saved);
+        return PaymentDto.builder()
+                .paymentId(payment.getId())
+                .totalPayment(payment.getTotalAmount())
+                .deliveryTotal(payment.getDeliveryPrice())
+                .feeTotal(payment.getTaxAmount())
+                .build();
     }
+
 
     /**
      * Формирует PaymentDto из сущности Payment.
