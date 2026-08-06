@@ -47,19 +47,27 @@ public class OrderService {
         }
 
         var response = warehouseServiceApi.check(cart);
-
-        //тут нужно создать и забронировать через метод склада
         BookedProductsDto booked = response.getBody();
 
         Long productPrice = calculateProductPrice(cart.getProducts());
-        Long deliveryPrice = calculateDeliveryPrice(booked);
+
+        // Создаём временную сущность Order только для передачи параметров в getDeliveryPriceFromServiceOrFallback
+        Order tempOrder = Order.builder()
+                .deliveryWeight(booked.getDeliveryWeight())
+                .deliveryVolume(booked.getDeliveryVolume())
+                .fragile(booked.isFragile())
+                .build();
+
+        Double deliveryPriceDouble = getDeliveryPriceFromServiceOrFallback(tempOrder);
+        Long deliveryPrice = deliveryPriceDouble.longValue();
+
         Long totalPrice = productPrice + deliveryPrice;
 
         UUID orderId = UUID.randomUUID();
         Order order = Order.builder()
                 .id(orderId)
                 .shoppingCartId(cart.getShoppingCartId())
-                .state(OrderStatus.NEW) // Начальный статус
+                .state(OrderStatus.NEW)
                 .totalPrice(totalPrice)
                 .productPrice(productPrice)
                 .deliveryPrice(deliveryPrice)
@@ -84,7 +92,7 @@ public class OrderService {
         Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
                 .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
 
-        log.info("Заказ создан: orderId={}", orderId);
+        log.info("Заказ создан: orderId={}, totalPrice={}", orderId, totalPrice);
         return toDto(order, itemsByOrder);
     }
 
@@ -276,7 +284,7 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public OrderDto calculateDelivery(UUID orderId) {
-        log.info("Расчёт доставки через сервис delivery: orderId={}", orderId);
+        log.info("Отдельный расчёт доставки (реальный вызов): orderId={}", orderId);
 
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> {
@@ -284,40 +292,10 @@ public class OrderService {
                     throw new NoOrderFoundException("Заказ не найден: " + orderId, 404);
                 });
 
-        // Готовим запрос для сервиса доставки
-        OrderDto requestDto = OrderDto.builder()
-                .orderId(order.getId())
-                .deliveryWeight(order.getDeliveryWeight())
-                .deliveryVolume(order.getDeliveryVolume())
-                .fragile(order.getFragile())
-                // остальные поля можно не заполнять, если сервис delivery их не использует
-                .build();
+        Double deliveryPriceDouble = getDeliveryPriceFromServiceOrFallback(order);
+        long deliveryPrice = deliveryPriceDouble.longValue();
 
-        log.debug("Запрос к delivery/cost: orderId={}, weight={}, volume={}, fragile={}",
-                requestDto.getOrderId(), requestDto.getDeliveryWeight(),
-                requestDto.getDeliveryVolume(), requestDto.getFragile());
-
-        var resp = deliveryServiceApi.calculateDeliveryCost(requestDto);
-        log.debug("Статус ответа от delivery: {}", resp.getStatusCodeValue());
-
-        if (!resp.getStatusCode().is2xxSuccessful()) {
-            log.error("Ошибка расчёта доставки: статус={}, orderId={}", resp.getStatusCodeValue(), orderId);
-            throw new IllegalArgumentException(
-                    "Не удалось рассчитать доставку (статус: " + resp.getStatusCodeValue() + ")"
-            );
-        }
-
-        // ✅ Теперь это корректно: сервис возвращает ResponseEntity<Double>
-        Double deliveryPriceDouble = resp.getBody();
-        if (deliveryPriceDouble == null) {
-            log.error("Пустой ответ (null) от сервиса delivery для заказа: {}", orderId);
-            throw new IllegalArgumentException("Пустой ответ от сервиса доставки");
-        }
-
-        long deliveryPrice = deliveryPriceDouble.longValue(); // безопасно приводим к long
-        log.info("Стоимость доставки от сервиса: {} (double={})", deliveryPrice, deliveryPriceDouble);
-
-        // Считаем стоимость товаров
+        // Считаем productPrice по позициям
         List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
         long productPrice = items.stream()
                 .mapToLong(item -> item.getPriceAtMoment() * item.getQuantity())
@@ -347,6 +325,7 @@ public class OrderService {
                 .productPrice(productPrice)
                 .build();
     }
+
 
     @Transactional
     public OrderDto markAssembled(UUID orderId) {
@@ -413,6 +392,101 @@ public class OrderService {
                 .productPrice(order.getProductPrice())
                 .build();
     }
+
+    @Transactional(readOnly = true)
+    public OrderDto calculateTotal(UUID orderId) {
+        log.info("Расчёт полной стоимости заказа (с реальным вызовом delivery): orderId={}", orderId);
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> {
+                    log.warn("Заказ не найден: orderId={}", orderId);
+                    throw new NoOrderFoundException("Заказ не найден: " + orderId, 404);
+                });
+
+        // Считаем стоимость товаров
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        long productPrice = items.stream()
+                .mapToLong(item -> item.getPriceAtMoment() * item.getQuantity())
+                .sum();
+
+        // Реальный расчёт доставки через Feign
+        Double deliveryPriceDouble = getDeliveryPriceFromServiceOrFallback(order);
+
+        long deliveryPrice = deliveryPriceDouble.longValue();
+        long totalPrice = productPrice + deliveryPrice;
+
+        // Обновляем значения в сущности (если по ТЗ нужно хранить актуальные суммы)
+        order.setProductPrice(productPrice);
+        order.setDeliveryPrice(deliveryPrice);
+        order.setTotalPrice(totalPrice);
+        // orderRepository.save(order); // раскомментируй, если нужно сохранять пересчитанные суммы
+
+        Map<UUID, Integer> productsMap = items.stream()
+                .filter(i -> i.getQuantity() > 0)
+                .collect(Collectors.toMap(
+                        OrderItem::getProductId,
+                        item -> item.getQuantity().intValue()
+                ));
+
+        log.info("Итоговый расчёт заказа {}: productPrice={}, deliveryPrice={}, totalPrice={}",
+                orderId, productPrice, deliveryPrice, totalPrice);
+
+        return OrderDto.builder()
+                .orderId(order.getId())
+                .shoppingCartId(order.getShoppingCartId())
+                .products(productsMap)
+                .paymentId(order.getPaymentId())
+                .deliveryId(order.getDeliveryId())
+                .state(order.getState())
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                .totalPrice(totalPrice)
+                .deliveryPrice(deliveryPrice)
+                .productPrice(productPrice)
+                .build();
+    }
+
+    private Double getDeliveryPriceFromServiceOrFallback(Order order) {
+        try {
+            OrderDto requestDto = OrderDto.builder()
+                    .orderId(order.getId())
+                    .deliveryWeight(order.getDeliveryWeight())
+                    .deliveryVolume(order.getDeliveryVolume())
+                    .fragile(order.getFragile())
+                    .build();
+
+            var resp = deliveryServiceApi.calculateDeliveryCost(requestDto);
+            log.debug("Ответ от delivery/cost: status={}", resp.getStatusCodeValue());
+
+            if (!resp.getStatusCode().is2xxSuccessful()) {
+                log.warn("delivery вернул не 200: status={}, orderId={}", resp.getStatusCodeValue(), order.getDeliveryId());
+                throw new IllegalStateException("Не удалось рассчитать доставку (статус: " + resp.getStatusCodeValue() + ")");
+            }
+
+            Double price = resp.getBody();
+            if (price == null) {
+                log.warn("Пустой body от delivery для заказа: {}", order.getDeliveryId());
+                throw new IllegalStateException("Пустой ответ от сервиса доставки");
+            }
+
+            log.info("Реальная стоимость доставки получена: {}", price);
+            return price;
+
+        } catch (Exception e) {
+            // Fallback: если delivery недоступен — считаем по формуле
+            log.warn("Не удалось получить стоимость доставки от сервиса delivery, используем формулу как fallback. Причина: {}", e.toString());
+            BookedProductsDto booked = new BookedProductsDto(
+                    order.getDeliveryWeight(),
+                    order.getDeliveryVolume(),
+                    order.getFragile()
+            );
+            double fallbackPrice = calculateDeliveryPrice(booked);
+            log.info("Fallback-расчёт доставки: {}", fallbackPrice);
+            return fallbackPrice;
+        }
+    }
+
 
     private Long calculateProductPrice(Map<UUID, Long> products) { return 1000L; }
     private Long calculateDeliveryPrice(BookedProductsDto b) {
