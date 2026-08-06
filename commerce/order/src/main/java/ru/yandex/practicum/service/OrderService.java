@@ -9,6 +9,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.yandex.practicum.api.CartServiceApi;
+import ru.yandex.practicum.api.DeliveryServiceApi;
 import ru.yandex.practicum.api.PaymentServiceApi;
 import ru.yandex.practicum.api.WarehouseServiceApi;
 import ru.yandex.practicum.dto.*;
@@ -33,6 +34,7 @@ public class OrderService {
     private final WarehouseServiceApi warehouseServiceApi;
     private final CartServiceApi cartServiceApi;
     private final PaymentServiceApi paymentServiceApi;
+    private final DeliveryServiceApi deliveryServiceApi;
 
     // Этот сервис мы теперь используем только для смены статусов
     private final OrderStatusService statusService;
@@ -45,6 +47,8 @@ public class OrderService {
         }
 
         var response = warehouseServiceApi.check(cart);
+
+        //тут нужно создать и забронировать через метод склада
         BookedProductsDto booked = response.getBody();
 
         Long productPrice = calculateProductPrice(cart.getProducts());
@@ -270,89 +274,78 @@ public class OrderService {
         return toDto(order, itemsByOrder);
     }
 
-    @Transactional(readOnly = true) // readOnly, потому что мы только считаем, не меняем состояние
-    public OrderDto calculateTotal(UUID orderId) {
-        if (orderId == null) {
-            throw new IllegalArgumentException("orderId обязателен");
-        }
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
-
-        // Пересчитываем цены на основе текущих позиций в заказе
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-
-        long productPrice = items.stream()
-                .mapToLong(item -> item.getPriceAtMoment() * item.getQuantity())
-                .sum();
-
-        long deliveryPrice = calculateDeliveryPrice(new BookedProductsDto(
-                order.getDeliveryWeight(),
-                order.getDeliveryVolume(),
-                order.getFragile()
-        ));
-
-        long totalPrice = productPrice + deliveryPrice;
-
-        // Обновляем значения в сущности (если нужно хранить актуальные суммы в БД)
-        order.setProductPrice(productPrice);
-        order.setDeliveryPrice(deliveryPrice);
-        order.setTotalPrice(totalPrice);
-        // orderRepository.save(order); // Раскомментируй, если по ТЗ нужно сохранять пересчитанные суммы
-
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
-
-        log.info("Пересчитана стоимость заказа {}: totalPrice={}", orderId, totalPrice);
-        return toDto(order, itemsByOrder);
-    }
-
-    @Transactional(readOnly = true) // readOnly, потому что мы только считаем, не меняем состояние
+    @Transactional(readOnly = true)
     public OrderDto calculateDelivery(UUID orderId) {
-        if (orderId == null) {
-            throw new IllegalArgumentException("orderId обязателен");
-        }
+        log.info("Расчёт доставки через сервис delivery: orderId={}", orderId);
 
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
+                .orElseThrow(() -> {
+                    log.warn("Заказ не найден: orderId={}", orderId);
+                    throw new NoOrderFoundException("Заказ не найден: " + orderId, 404);
+                });
 
+        // Готовим запрос для сервиса доставки
+        OrderDto requestDto = OrderDto.builder()
+                .orderId(order.getId())
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                // остальные поля можно не заполнять, если сервис delivery их не использует
+                .build();
+
+        log.debug("Запрос к delivery/cost: orderId={}, weight={}, volume={}, fragile={}",
+                requestDto.getOrderId(), requestDto.getDeliveryWeight(),
+                requestDto.getDeliveryVolume(), requestDto.getFragile());
+
+        var resp = deliveryServiceApi.calculateDeliveryCost(requestDto);
+        log.debug("Статус ответа от delivery: {}", resp.getStatusCodeValue());
+
+        if (!resp.getStatusCode().is2xxSuccessful()) {
+            log.error("Ошибка расчёта доставки: статус={}, orderId={}", resp.getStatusCodeValue(), orderId);
+            throw new IllegalArgumentException(
+                    "Не удалось рассчитать доставку (статус: " + resp.getStatusCodeValue() + ")"
+            );
+        }
+
+        // ✅ Теперь это корректно: сервис возвращает ResponseEntity<Double>
+        Double deliveryPriceDouble = resp.getBody();
+        if (deliveryPriceDouble == null) {
+            log.error("Пустой ответ (null) от сервиса delivery для заказа: {}", orderId);
+            throw new IllegalArgumentException("Пустой ответ от сервиса доставки");
+        }
+
+        long deliveryPrice = deliveryPriceDouble.longValue(); // безопасно приводим к long
+        log.info("Стоимость доставки от сервиса: {} (double={})", deliveryPrice, deliveryPriceDouble);
+
+        // Считаем стоимость товаров
         List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-
-        // Если нужно пересчитывать вес/объём по текущему составу — можно вызвать warehouseServiceApi.check(...)
-        // Сейчас берём уже сохранённые значения из заказа
-        long deliveryPrice = calculateDeliveryPrice(new BookedProductsDto(
-                order.getDeliveryWeight(),
-                order.getDeliveryVolume(),
-                order.getFragile()
-        ));
-
-        // Пересчитываем productPrice на основе позиций (чтобы вернуть полный актуальный DTO)
         long productPrice = items.stream()
                 .mapToLong(item -> item.getPriceAtMoment() * item.getQuantity())
                 .sum();
 
         long totalPrice = productPrice + deliveryPrice;
 
-        // Создаём временную копию order с пересчитанными ценами для DTO (без сохранения в БД)
-        Order dtoOrder = new Order();
-        dtoOrder.setId(order.getId());
-        dtoOrder.setShoppingCartId(order.getShoppingCartId());
-        dtoOrder.setState(order.getState());
-        dtoOrder.setDeliveryWeight(order.getDeliveryWeight());
-        dtoOrder.setDeliveryVolume(order.getDeliveryVolume());
-        dtoOrder.setFragile(order.getFragile());
-        dtoOrder.setProductPrice(productPrice);
-        dtoOrder.setDeliveryPrice(deliveryPrice);
-        dtoOrder.setTotalPrice(totalPrice);
-        dtoOrder.setPaymentId(order.getPaymentId());
-        dtoOrder.setDeliveryId(order.getDeliveryId());
-        dtoOrder.setCreatedAt(order.getCreatedAt());
+        Map<UUID, Integer> productsMap = items.stream()
+                .filter(i -> i.getQuantity() > 0)
+                .collect(Collectors.toMap(
+                        OrderItem::getProductId,
+                        item -> item.getQuantity().intValue()
+                ));
 
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
-
-        log.info("Рассчитана стоимость доставки для заказа {}: deliveryPrice={}", orderId, deliveryPrice);
-        return toDto(dtoOrder, itemsByOrder);
+        return OrderDto.builder()
+                .orderId(order.getId())
+                .shoppingCartId(order.getShoppingCartId())
+                .products(productsMap)
+                .paymentId(order.getPaymentId())
+                .deliveryId(order.getDeliveryId())
+                .state(order.getState())
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                .totalPrice(totalPrice)
+                .deliveryPrice(deliveryPrice)
+                .productPrice(productPrice)
+                .build();
     }
 
     @Transactional
@@ -422,6 +415,7 @@ public class OrderService {
     }
 
     private Long calculateProductPrice(Map<UUID, Long> products) { return 1000L; }
-    private Long calculateDeliveryPrice(BookedProductsDto b) { return (long) (200 + b.getDeliveryWeight() * 5); }
+    private Long calculateDeliveryPrice(BookedProductsDto b) {
+        return (long) (200 + b.getDeliveryWeight() * 5); }
     private Long calculatePricePerUnit(UUID id) { return 100L; }
 }
