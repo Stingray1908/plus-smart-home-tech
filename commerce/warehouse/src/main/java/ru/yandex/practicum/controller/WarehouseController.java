@@ -8,6 +8,9 @@ import ru.yandex.practicum.api.WarehouseServiceApi;
 import ru.yandex.practicum.dto.*;
 import ru.yandex.practicum.service.WarehouseService;
 
+import java.util.Map;
+import java.util.UUID;
+
 @RestController
 @RequestMapping("/api/v1/warehouse")
 @RequiredArgsConstructor
@@ -47,6 +50,17 @@ public class WarehouseController implements WarehouseServiceApi {
     @Override
     public ResponseEntity<Void> markOrderShipped(@RequestBody ShippedToDeliveryRequest request) {
         warehouseService.markOrderAsShipped(request.getOrderId(), request.getDeliveryId());
+        return ResponseEntity.ok().build();
+    }
+
+    @Override
+    public ResponseEntity<Void> returnProducts(@RequestBody Map<UUID, Long> products) {
+        if (products == null || products.isEmpty()) {
+            // Можно вернуть 400, если пустой возврат невалиден
+            return ResponseEntity.badRequest().build();
+        }
+
+        warehouseService.returnProducts(products);
         return ResponseEntity.ok().build();
     }
 }

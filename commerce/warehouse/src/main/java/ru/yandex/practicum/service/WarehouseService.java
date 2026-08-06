@@ -1,5 +1,6 @@
 package ru.yandex.practicum.service;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.yandex.practicum.dto.*;
@@ -15,6 +16,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class WarehouseService {
 
@@ -262,5 +264,37 @@ public class WarehouseService {
 
         stock.setQuantity(stock.getQuantity() + quantity);
         warehouseStockRepository.save(stock);
+    }
+
+    /**
+     * Обрабатывает возврат: увеличивает остатки по каждому productId на указанное количество.
+     *
+     * @param products productId -> quantity
+     */
+    @Transactional
+    public void returnProducts(Map<UUID, Long> products) {
+        if (products == null || products.isEmpty()) {
+            log.warn("Получена пустая карта возвратов");
+            return;
+        }
+
+        for (Map.Entry<UUID, Long> entry : products.entrySet()) {
+            UUID productId = entry.getKey();
+            long quantity = entry.getValue();
+
+            if (quantity <= 0) {
+                log.warn("Пропущен товар {}: количество возврата {} <= 0", productId, quantity);
+                continue;
+            }
+
+            WarehouseStock stock = warehouseStockRepository.findByProductId(productId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "Товар не найден на складе: productId=" + productId));
+
+            long currentAvailable = stock.getQuantity();
+            stock.setQuantity(currentAvailable + quantity);
+
+            log.info("Возврат товара {}: +{} шт. Новый остаток: {}", productId, quantity, stock.getQuantity());
+        }
     }
 }
