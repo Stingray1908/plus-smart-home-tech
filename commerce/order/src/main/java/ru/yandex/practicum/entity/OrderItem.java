@@ -34,5 +34,5 @@ public class OrderItem {
     private Long quantity;
 
     @Column(name = "price_at_moment", precision = 10, scale = 2, nullable = false)
-    private Long priceAtMoment; // цена за единицу на момент оформления
+    private Long priceAtMoment;
 }

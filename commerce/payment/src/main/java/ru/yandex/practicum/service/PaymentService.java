@@ -34,7 +34,7 @@ public class PaymentService {
      * - totalPayment = сумма товаров
      * - остальные поля = null (доставка и налоги ещё не рассчитаны)
      */
-    private double calculateProductsTotal(OrderDto dto) {
+    public double calculateProductsTotal(OrderDto dto) {
         if (dto.getProducts() == null || dto.getProducts().isEmpty()) {
             return 0.0;
         }
@@ -44,7 +44,6 @@ public class PaymentService {
             UUID productId = entry.getKey();
             Long quantity = entry.getValue();
 
-            // ✅ Реальный вызов к сервису shopping-store через Feign
             var response = storeServiceApi.getProductById(productId);
             if (!response.getStatusCode().is2xxSuccessful()) {
                 throw new IllegalStateException("Не удалось получить продукт id=" + productId);
@@ -54,7 +53,7 @@ public class PaymentService {
                 throw new IllegalStateException("Продукт id=" + productId + " не содержит цены");
             }
 
-            total += product.getPrice().doubleValue() * quantity;
+            total += product.getPrice() * quantity;
         }
         return total;
     }

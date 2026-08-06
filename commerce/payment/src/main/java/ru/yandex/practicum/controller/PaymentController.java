@@ -21,8 +21,8 @@ public class PaymentController {
      * Формирование оплаты для заказа (переход в платежный шлюз).
      */
     @PostMapping
-    public ResponseEntity<PaymentDto> createPayment(@RequestBody OrderDto request) {
-        PaymentDto response = paymentService.calculateProductsTotal(request);
+    public ResponseEntity<Double> createPayment(@RequestBody OrderDto request) {
+        Double response = paymentService.calculateProductsTotal(request);
         return ResponseEntity.ok(response);
     }
 
@@ -41,8 +41,8 @@ public class PaymentController {
      * Только расчёт стоимости товаров (для UI).
      */
     @PostMapping("/productCost")
-    public ResponseEntity<PaymentDto> calculateProductCost(@RequestBody OrderDto orderDto) {
-        PaymentDto dto = paymentService.calculateProductsTotal(orderDto);
+    public ResponseEntity<Double> calculateProductCost(@RequestBody OrderDto orderDto) {
+        Double dto = paymentService.calculateProductsTotal(orderDto);
         return ResponseEntity.ok(dto);
     }
 

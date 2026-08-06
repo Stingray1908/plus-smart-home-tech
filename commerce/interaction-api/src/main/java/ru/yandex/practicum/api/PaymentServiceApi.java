@@ -34,7 +34,7 @@ public interface PaymentServiceApi {
      * Только расчёт стоимости товаров (для UI).
      */
     @PostMapping("/productCost")
-    public ResponseEntity<PaymentDto> calculateProductCost(@RequestBody OrderDto orderDto);
+    public ResponseEntity<Double> calculateProductCost(@RequestBody OrderDto orderDto);
 
     /**
      * POST /api/v1/payment/refund

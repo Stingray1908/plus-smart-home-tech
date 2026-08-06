@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import ru.yandex.practicum.api.CartServiceApi;
@@ -39,6 +40,7 @@ public class OrderService {
     // Этот сервис мы теперь используем только для смены статусов
     private final OrderStatusService statusService;
 
+    //проверен
     @Transactional
     public OrderDto createOrder(CreateNewOrderRequest request) {
         ShoppingCartDto cart = request.getShoppingCart();
@@ -49,10 +51,7 @@ public class OrderService {
         var response = warehouseServiceApi.check(cart);
         BookedProductsDto booked = response.getBody();
 
-        UUID orderId = UUID.randomUUID();
-
         Order order = Order.builder()
-                .id(orderId)
                 .shoppingCartId(cart.getShoppingCartId())
                 .state(OrderStatus.NEW)
                 .totalPrice(0L)
@@ -61,8 +60,8 @@ public class OrderService {
                 .deliveryWeight(booked.getDeliveryWeight())
                 .deliveryVolume(booked.getDeliveryVolume())
                 .fragile(booked.isFragile())
-                .createdAt(Instant.now())
                 .build();
+
         order = orderRepository.save(order);
 
         Order finalOrder = order;
@@ -71,54 +70,29 @@ public class OrderService {
                         .order(finalOrder)
                         .productId(entry.getKey())
                         .quantity(entry.getValue())
-                        .priceAtMoment(calculatePricePerUnit(entry.getKey()))
+                        .priceAtMoment(0L)
                         .build())
                 .toList();
+
+        long productPriceValue = calculateAndGetProductPrice(order, items);
+
+        order.setProductPrice(productPriceValue);
+        order.setTotalPrice(productPriceValue);
+        orderRepository.save(order);
+
         orderItemRepository.saveAll(items);
 
-        // --- РАСЧЁТ ЧЕРЕЗ PAYMENT-СЕРВИС ---
-        OrderDto orderDtoForCalculation = OrderDto.builder()
-                .orderId(order.getId())
-                .shoppingCartId(order.getShoppingCartId())
-                .products(cart.getProducts())
-                .deliveryWeight(order.getDeliveryWeight())
-                .deliveryVolume(order.getDeliveryVolume())
-                .fragile(order.getFragile())
-                .build();
+        log.info("Заказ создан: orderId={}, productPrice={}, totalPrice={}",
+                order.getId(), order.getProductPrice(), order.getTotalPrice());
 
-        try {
-            var totalCostResp = paymentServiceApi.calculateTotalCost(orderDtoForCalculation);
-            if (!totalCostResp.getStatusCode().is2xxSuccessful()) {
-                throw new IllegalArgumentException("Не удалось рассчитать полную стоимость: " + totalCostResp.getStatusCodeValue());
-            }
-            Double totalPriceDouble = totalCostResp.getBody();
-            if (totalPriceDouble == null) {
-                throw new IllegalArgumentException("Пустой ответ от payment.calculateTotalCost");
-            }
-            long totalPrice = totalPriceDouble.longValue();
-
-            Double deliveryPriceDouble = getDeliveryPriceFromServiceOrFallback(order);
-            long deliveryPrice = deliveryPriceDouble.longValue();
-            long productPrice = Math.max(0, totalPrice - deliveryPrice);
-
-            order.setTotalPrice(totalPrice);
-            order.setDeliveryPrice(deliveryPrice);
-            order.setProductPrice(productPrice);
-            order = orderRepository.save(order);
-        } catch (IllegalArgumentException e) {
-            log.error("Критическая ошибка расчёта стоимости при создании заказа {}. Отменяем.", order.getId(), e);
-            throw e;
-        }
-        // ---------------------------------
-
+        Order finalOrder1 = order;
         Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
+                .collect(Collectors.groupingBy(i -> finalOrder1.getId()));
 
-        log.info("Заказ создан: orderId={}, totalPrice={}", order.getId(), order.getTotalPrice());
         return toDto(order, itemsByOrder);
     }
 
-
+    // верен
     public List<OrderDto> getOrdersByUsername(String username, int page, int size) {
         if (username == null || username.isBlank()) {
             throw new NotAuthorizedUserException("Username must not be empty", "Имя пользователя не должно быть пустым", 401);
@@ -223,7 +197,6 @@ public class OrderService {
 
         return toDto(order, itemsByOrder);
     }
-
 
 
     private void sendReturnToWarehouse(Map<UUID, Long> returns) {
@@ -456,8 +429,21 @@ public class OrderService {
         return markOrderStatus(orderId, OrderStatus.COMPLETED, "Сборка заказа {} завершилась, статус установлен: COMPLETED");
     }
 
-    private Long calculateProductPrice(Map<UUID, Long> products) { return 1000L; }
-    private Long calculateDeliveryPrice(BookedProductsDto b) {
-        return (long) (200 + b.getDeliveryWeight() * 5); }
-    private Long calculatePricePerUnit(UUID id) { return 100L; }
+    /**
+     * Вызывает сервис оплаты для расчёта общей стоимости товаров в заказе.
+     * Возвращает округлённую сумму в Long.
+     */
+    private long calculateAndGetProductPrice(Order order, List<OrderItem> items) {
+        OrderDto orderForCalculation = toDto(order, items.stream()
+                .collect(Collectors.groupingBy(i -> order.getId())));
+
+        ResponseEntity<Double> paymentResponse = paymentServiceApi.calculateProductCost(orderForCalculation);
+        Double totalCost = paymentResponse.getBody();
+
+        if (totalCost == null) {
+            throw new IllegalStateException("Сервис оплаты вернул null вместо стоимости");
+        }
+
+        return Math.round(totalCost);
+    }
 }
