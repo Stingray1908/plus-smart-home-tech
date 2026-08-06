@@ -2,16 +2,16 @@ package ru.yandex.practicum.service;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import ru.yandex.practicum.dto.AddressDto;
-import ru.yandex.practicum.dto.BookedProductsDto;
-import ru.yandex.practicum.dto.NewProductInWarehouseRequest;
-import ru.yandex.practicum.dto.ShoppingCartDto;
+import ru.yandex.practicum.dto.*;
+import ru.yandex.practicum.entity.OrderBooking;
 import ru.yandex.practicum.entity.WarehouseStock;
 import ru.yandex.practicum.exception.ProductInShoppingCartLowQuantityInWarehouse;
 import ru.yandex.practicum.exception.SpecifiedProductAlreadyInWarehouseException;
+import ru.yandex.practicum.repository.OrderBookingRepository;
 import ru.yandex.practicum.repository.WarehouseStockRepository;
 
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -23,9 +23,11 @@ public class WarehouseService {
     private static final String CURRENT_ADDRESS = ADDRESSES[random.nextInt(0, ADDRESSES.length)];
 
     private final WarehouseStockRepository warehouseStockRepository;
+    private final OrderBookingRepository orderBookingRepository;
 
-    public WarehouseService(WarehouseStockRepository warehouseStockRepository) {
+    public WarehouseService(WarehouseStockRepository warehouseStockRepository, OrderBookingRepository orderBookingRepository) {
         this.warehouseStockRepository = warehouseStockRepository;
+        this.orderBookingRepository = orderBookingRepository;
     }
 
     public BookedProductsDto checkCart(ShoppingCartDto cart) {
@@ -119,6 +121,119 @@ public class WarehouseService {
                 .build();
 
         warehouseStockRepository.save(stock);
+    }
+
+    @Transactional
+    public BookedProductsDto assembleOrder(AssemblyProductsForOrderRequest request) {
+        if (request.getOrderId() == null) {
+            throw new IllegalArgumentException("orderId is required");
+        }
+        if (request.getProducts() == null || request.getProducts().isEmpty()) {
+            throw new IllegalArgumentException("products map must be non-empty");
+        }
+
+        UUID orderId = request.getOrderId();
+        Map<UUID, Integer> requiredQuantities = request.getProducts();
+        List<UUID> productIds = new ArrayList<>(requiredQuantities.keySet());
+
+        // Получаем текущие остатки
+        List<WarehouseStock> stocks = warehouseStockRepository.findByProductIdIn(productIds);
+        Map<UUID, WarehouseStock> stockMap = stocks.stream()
+                .collect(Collectors.toMap(WarehouseStock::getProductId, stock -> stock));
+
+        double totalWeight = 0;
+        double totalVolume = 0;
+        boolean anyFragile = false;
+
+        List<OrderBooking> bookingsToSave = new ArrayList<>();
+
+        for (Map.Entry<UUID, Integer> entry : requiredQuantities.entrySet()) {
+            UUID productId = entry.getKey();
+            int requiredQty = entry.getValue();
+
+            if (requiredQty <= 0) {
+                throw new IllegalArgumentException("Quantity must be positive for product " + productId);
+            }
+
+            WarehouseStock stock = stockMap.get(productId);
+            if (stock == null) {
+                throw new ProductInShoppingCartLowQuantityInWarehouse(
+                        "Product not found in warehouse: " + productId,
+                        "Товар не найден на складе: " + productId,
+                        400,
+                        null
+                );
+            }
+
+            // Сравниваем Integer с Long: приводим к long
+            if (stock.getQuantity() < requiredQty) {
+                throw new ProductInShoppingCartLowQuantityInWarehouse(
+                        "Not enough quantity for product " + productId +
+                                ": required " + requiredQty + ", available " + stock.getQuantity(),
+                        "Недостаточно товара на складе: требуется " + requiredQty +
+                                ", доступно " + stock.getQuantity(),
+                        400,
+                        null
+                );
+            }
+
+            // Уменьшаем остаток
+            long newQuantity = stock.getQuantity() - requiredQty;
+            stock.setQuantity(newQuantity);
+            // save внутри цикла допустим, потому что весь метод @Transactional: при ошибке всё откатится
+            warehouseStockRepository.save(stock);
+
+            // Создаём бронь
+            OrderBooking booking = OrderBooking.builder()
+                    .orderId(orderId)
+                    .productId(productId)
+                    .quantity(requiredQty)
+                    .bookedAt(Instant.now())
+                    .deliveryId(null) // пока не передан в доставку
+                    .build();
+            bookingsToSave.add(booking);
+
+            totalWeight += stock.getWeight() * requiredQty;
+            totalVolume += stock.getVolume() * requiredQty;
+            if (stock.isFragile()) {
+                anyFragile = true;
+            }
+        }
+
+        orderBookingRepository.saveAll(bookingsToSave);
+
+        return BookedProductsDto.builder()
+                .deliveryWeight(totalWeight)
+                .deliveryVolume(totalVolume)
+                .fragile(anyFragile)
+                .build();
+    }
+
+    @Transactional
+    public void markOrderAsShipped(UUID orderId, UUID deliveryId) {
+        if (orderId == null || deliveryId == null) {
+            throw new IllegalArgumentException("orderId и deliveryId обязательны");
+        }
+
+        // Находим все брони по заказу
+        List<OrderBooking> bookings = orderBookingRepository.findByOrderId(orderId);
+
+        if (bookings.isEmpty()) {
+            // Если брони нет, значит заказ не собирали — можно либо вернуть ошибку, либо ничего не делать.
+            // Для учебной задачи логично кинуть ошибку, чтобы не «проглатывать» странные запросы.
+            throw new ProductInShoppingCartLowQuantityInWarehouse(
+                    "Нет бронированных товаров для заказа: " + orderId,
+                    "Для заказа не найдена бронь товаров на складе",
+                    400,
+                    null
+            );
+        }
+
+        for (OrderBooking booking : bookings) {
+            booking.setDeliveryId(deliveryId);
+            // save можно вызывать в цикле: всё равно всё в одной транзакции
+            orderBookingRepository.save(booking);
+        }
     }
 
     public AddressDto getWarehouseAddress() {

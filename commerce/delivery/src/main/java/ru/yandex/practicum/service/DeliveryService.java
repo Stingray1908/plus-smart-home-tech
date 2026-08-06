@@ -4,10 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import ru.yandex.practicum.api.WarehouseServiceApi;
-import ru.yandex.practicum.dto.AddressDto;
-import ru.yandex.practicum.dto.DeliveryDto;
-import ru.yandex.practicum.dto.DeliveryState;
-import ru.yandex.practicum.dto.OrderDto;
+import ru.yandex.practicum.dto.*;
 import ru.yandex.practicum.entity.Delivery;
 import ru.yandex.practicum.exception.NoDeliveryFoundException;
 import ru.yandex.practicum.repository.DeliveryRepository;
@@ -34,31 +31,46 @@ public class DeliveryService {
 
         Delivery entity;
 
-        // Если ID есть — ищем и обновляем, иначе создаём новую
+        // Логика создания/обновления (твоя существующая)
         if (deliveryId != null) {
             entity = deliveryRepository.findById(deliveryId)
                     .orElseThrow(() -> new IllegalArgumentException("Доставка не найдена: " + deliveryId));
             log.info("Обновление доставки с ID {}", deliveryId);
         } else {
             entity = new Delivery();
-            entity.setId(UUID.randomUUID());
-            // По ТЗ при создании ставим CREATED, даже если в DTO что-то другое
+            entity.setId(UUID.randomUUID()); // <-- deliveryId генерируется здесь
             entity.setDeliveryState(DeliveryState.CREATED);
             log.info("Создание новой доставки с ID {}", entity.getId());
         }
 
-        // Заполняем адреса
         fillAddress(entity, dto.getFromAddress(), true);
         fillAddress(entity, dto.getToAddress(), false);
-
         entity.setOrderId(orderId);
 
-        // deliveryState: если это создание — всегда CREATED. Если обновление — можно взять из DTO
         if (dto.getDeliveryState() != null && deliveryId != null) {
             entity.setDeliveryState(dto.getDeliveryState());
         }
 
         Delivery saved = deliveryRepository.save(entity);
+
+        // ================= ВАЖНО: ДОБАВЛЯЕМ ЭТОТ БЛОК =================
+        // Сразу после сохранения доставки в своей БД, сообщаем складу о привязке
+        ShippedToDeliveryRequest req = new ShippedToDeliveryRequest();
+        req.setOrderId(saved.getOrderId());
+        req.setDeliveryId(saved.getId()); // <-- тот самый ID, который только что сгенерировали
+
+        try {
+            warehouseServiceApi.markOrderShipped(req);
+            log.info("Склад успешно уведомлён о доставке ID={} для заказа {}", saved.getId(), saved.getOrderId());
+        } catch (Exception e) {
+            // Если склад недоступен, у тебя есть fallback.
+            // В учебном проекте можно просто логировать и продолжать,
+            // либо откатить транзакцию (throw e), если нужна строгая согласованность.
+            log.error("Не удалось уведомить склад о доставке ID={}", saved.getId(), e);
+            // Для курса часто достаточно логирования, т.к. fallback вернёт 200 OK
+        }
+        // =============================================================
+
         return toDto(saved);
     }
 
@@ -108,7 +120,7 @@ public class DeliveryService {
             throw new NoDeliveryFoundException("Доставка для заказа не найдена: " + orderId, 404);
         }
 
-        Delivery delivery = deliveries.get(0);
+        Delivery delivery = deliveries.getFirst();
 
         // Логика статусов:
         // - Если уже DELIVERED/CANCELLED/FAILED — можно либо запретить, либо просто логировать и не менять.

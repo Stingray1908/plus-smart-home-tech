@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.yandex.practicum.api.WarehouseServiceApi;
+
 import ru.yandex.practicum.dto.*;
 import ru.yandex.practicum.service.WarehouseService;
 
@@ -35,6 +36,17 @@ public class WarehouseController implements WarehouseServiceApi {
     @Override
     public ResponseEntity<Void> addQuantity(@RequestBody AddProductToWarehouseRequest request) {
         warehouseService.addQuantityToWarehouse(request.getProductId(), request.getQuantity());
+        return ResponseEntity.ok().build();
+    }
+
+    @Override
+    public ResponseEntity<BookedProductsDto> assembleOrder(@RequestBody AssemblyProductsForOrderRequest request) {
+        return ResponseEntity.ok(warehouseService.assembleOrder(request));
+    }
+
+    @Override
+    public ResponseEntity<Void> markOrderShipped(@RequestBody ShippedToDeliveryRequest request) {
+        warehouseService.markOrderAsShipped(request.getOrderId(), request.getDeliveryId());
         return ResponseEntity.ok().build();
     }
 }

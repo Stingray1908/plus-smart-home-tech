@@ -7,10 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import ru.yandex.practicum.dto.AddProductToWarehouseRequest;
-import ru.yandex.practicum.dto.AddressDto;
-import ru.yandex.practicum.dto.BookedProductsDto;
-import ru.yandex.practicum.dto.ShoppingCartDto;
+import ru.yandex.practicum.dto.*;
 
 @FeignClient(name = "warehouse", path = "/api/v1/warehouse/", fallback = WarehouseServiceApiFallback.class)
 public interface WarehouseServiceApi {
@@ -23,4 +20,10 @@ public interface WarehouseServiceApi {
 
     @GetMapping("/address")
     public ResponseEntity<AddressDto> getAddress();
+
+    @PostMapping("/assembly")
+    ResponseEntity<BookedProductsDto> assembleOrder(@RequestBody AssemblyProductsForOrderRequest request);
+
+    @PostMapping("/shipped")
+    ResponseEntity<Void> markOrderShipped(@RequestBody ShippedToDeliveryRequest request);
 }
