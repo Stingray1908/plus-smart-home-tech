@@ -15,7 +15,7 @@ public class AssemblyProductsForOrderRequest {
     /**
      * Карта товаров: ключ — UUID товара, значение — количество (целое число).
      */
-    private Map<UUID, Integer> products;
+    private Map<UUID, Long> products;
 
     /**
      * Идентификатор заказа в БД.

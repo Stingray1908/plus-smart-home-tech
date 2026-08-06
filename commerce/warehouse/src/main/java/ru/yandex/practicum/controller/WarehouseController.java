@@ -42,6 +42,12 @@ public class WarehouseController implements WarehouseServiceApi {
         return ResponseEntity.ok().build();
     }
 
+
+    /**
+     * Создает бронь на складе
+     * @param request
+     * @return
+     */
     @Override
     public ResponseEntity<BookedProductsDto> assembleOrder(@RequestBody AssemblyProductsForOrderRequest request) {
         return ResponseEntity.ok(warehouseService.assembleOrder(request));

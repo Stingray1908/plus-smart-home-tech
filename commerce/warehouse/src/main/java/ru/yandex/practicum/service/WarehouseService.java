@@ -33,65 +33,56 @@ public class WarehouseService {
     }
 
     public BookedProductsDto checkCart(ShoppingCartDto cart) {
-        List<UUID> productIds = new ArrayList<>(cart.getProducts().keySet());
+        Map<UUID, Long> products = cart.getProducts();
+        // Используем только проверку, ничего не сохраняем
+        return validateAndCalculate(products).dto;
+    }
 
-        if (productIds.isEmpty()) {
-            return BookedProductsDto.builder()
-                    .deliveryWeight(0)
-                    .deliveryVolume(0)
-                    .fragile(false)
-                    .build();
+    @Transactional
+    public BookedProductsDto assembleOrder(AssemblyProductsForOrderRequest request) {
+        if (request.getOrderId() == null) {
+            throw new IllegalArgumentException("orderId is required");
+        }
+        if (request.getProducts() == null || request.getProducts().isEmpty()) {
+            throw new IllegalArgumentException("products map must be non-empty");
         }
 
-        List<WarehouseStock> stocks = warehouseStockRepository.findByProductIdIn(productIds);
+        UUID orderId = request.getOrderId();
+        Map<UUID, Long> requiredQuantities = request.getProducts();
 
-        Map<UUID, WarehouseStock> stockMap = stocks.stream()
-                .collect(Collectors.toMap(
-                        WarehouseStock::getProductId,
-                        stock -> stock
-                ));
+        // Один запрос к БД, проверка и получение сущностей
+        ValidationResult result = validateAndCalculate(requiredQuantities);
+        Map<UUID, WarehouseStock> stockMap = result.stockMap;
 
-        double totalWeight = 0;
-        double totalVolume = 0;
-        boolean anyFragile = false;
+        List<OrderBooking> bookingsToSave = new ArrayList<>();
+        List<WarehouseStock> stocksToSave = new ArrayList<>();
 
-        for (Map.Entry<UUID, Long> entry : cart.getProducts().entrySet()) {
+        for (Map.Entry<UUID, Long> entry : requiredQuantities.entrySet()) {
             UUID productId = entry.getKey();
             Long requiredQty = entry.getValue();
 
+            // Работаем с теми же сущностями, что были загружены в validateAndCalculate
             WarehouseStock stock = stockMap.get(productId);
+            long newQuantity = stock.getQuantity() - requiredQty;
+            stock.setQuantity(newQuantity);
+            stocksToSave.add(stock);
 
-            if (stock == null) {
-                throw new ProductInShoppingCartLowQuantityInWarehouse(
-                        "Product not found in warehouse: " + productId,
-                        "Товар не найден на складе",
-                        400,
-                        null);
-            }
-
-            if (stock.getQuantity() < requiredQty) {
-                throw new ProductInShoppingCartLowQuantityInWarehouse(
-                        "Not enough quantity for product " + productId +
-                                ": required " + requiredQty + ", available " + stock.getQuantity(),
-                        "Недостаточно товара на складе: требуется " + requiredQty +
-                                ", доступно " + stock.getQuantity(),
-                        400,
-                        null);
-            }
-
-            totalWeight += stock.getWeight() * requiredQty;
-            totalVolume += stock.getVolume() * requiredQty;
-            if (stock.isFragile()) {
-                anyFragile = true;
-            }
+            OrderBooking booking = OrderBooking.builder()
+                    .orderId(orderId)
+                    .productId(productId)
+                    .quantity(requiredQty)
+                    .bookedAt(Instant.now())
+                    .deliveryId(null)
+                    .build();
+            bookingsToSave.add(booking);
         }
 
-        return BookedProductsDto.builder()
-                .deliveryWeight(totalWeight)
-                .deliveryVolume(totalVolume)
-                .fragile(anyFragile)
-                .build();
+        warehouseStockRepository.saveAll(stocksToSave);
+        orderBookingRepository.saveAll(bookingsToSave);
+
+        return result.dto;
     }
+
 
     @Transactional
     public void addProductToWarehouse(NewProductInWarehouseRequest request) {
@@ -123,92 +114,6 @@ public class WarehouseService {
                 .build();
 
         warehouseStockRepository.save(stock);
-    }
-
-    @Transactional
-    public BookedProductsDto assembleOrder(AssemblyProductsForOrderRequest request) {
-        if (request.getOrderId() == null) {
-            throw new IllegalArgumentException("orderId is required");
-        }
-        if (request.getProducts() == null || request.getProducts().isEmpty()) {
-            throw new IllegalArgumentException("products map must be non-empty");
-        }
-
-        UUID orderId = request.getOrderId();
-        Map<UUID, Integer> requiredQuantities = request.getProducts();
-        List<UUID> productIds = new ArrayList<>(requiredQuantities.keySet());
-
-        // Получаем текущие остатки
-        List<WarehouseStock> stocks = warehouseStockRepository.findByProductIdIn(productIds);
-        Map<UUID, WarehouseStock> stockMap = stocks.stream()
-                .collect(Collectors.toMap(WarehouseStock::getProductId, stock -> stock));
-
-        double totalWeight = 0;
-        double totalVolume = 0;
-        boolean anyFragile = false;
-
-        List<OrderBooking> bookingsToSave = new ArrayList<>();
-
-        for (Map.Entry<UUID, Integer> entry : requiredQuantities.entrySet()) {
-            UUID productId = entry.getKey();
-            int requiredQty = entry.getValue();
-
-            if (requiredQty <= 0) {
-                throw new IllegalArgumentException("Quantity must be positive for product " + productId);
-            }
-
-            WarehouseStock stock = stockMap.get(productId);
-            if (stock == null) {
-                throw new ProductInShoppingCartLowQuantityInWarehouse(
-                        "Product not found in warehouse: " + productId,
-                        "Товар не найден на складе: " + productId,
-                        400,
-                        null
-                );
-            }
-
-            // Сравниваем Integer с Long: приводим к long
-            if (stock.getQuantity() < requiredQty) {
-                throw new ProductInShoppingCartLowQuantityInWarehouse(
-                        "Not enough quantity for product " + productId +
-                                ": required " + requiredQty + ", available " + stock.getQuantity(),
-                        "Недостаточно товара на складе: требуется " + requiredQty +
-                                ", доступно " + stock.getQuantity(),
-                        400,
-                        null
-                );
-            }
-
-            // Уменьшаем остаток
-            long newQuantity = stock.getQuantity() - requiredQty;
-            stock.setQuantity(newQuantity);
-            // save внутри цикла допустим, потому что весь метод @Transactional: при ошибке всё откатится
-            warehouseStockRepository.save(stock);
-
-            // Создаём бронь
-            OrderBooking booking = OrderBooking.builder()
-                    .orderId(orderId)
-                    .productId(productId)
-                    .quantity(requiredQty)
-                    .bookedAt(Instant.now())
-                    .deliveryId(null) // пока не передан в доставку
-                    .build();
-            bookingsToSave.add(booking);
-
-            totalWeight += stock.getWeight() * requiredQty;
-            totalVolume += stock.getVolume() * requiredQty;
-            if (stock.isFragile()) {
-                anyFragile = true;
-            }
-        }
-
-        orderBookingRepository.saveAll(bookingsToSave);
-
-        return BookedProductsDto.builder()
-                .deliveryWeight(totalWeight)
-                .deliveryVolume(totalVolume)
-                .fragile(anyFragile)
-                .build();
     }
 
     @Transactional
@@ -297,4 +202,71 @@ public class WarehouseService {
             log.info("Возврат товара {}: +{} шт. Новый остаток: {}", productId, quantity, stock.getQuantity());
         }
     }
+
+    private ValidationResult validateAndCalculate(Map<UUID, Long> products) {
+        if (products.isEmpty()) {
+            BookedProductsDto empty = new BookedProductsDto(0, 0, false);
+            return new ValidationResult(empty, Collections.emptyMap());
+        }
+
+        List<UUID> productIds = new ArrayList<>(products.keySet());
+        // ОДИН запрос к БД
+        List<WarehouseStock> stocks = warehouseStockRepository.findByProductIdIn(productIds);
+        Map<UUID, WarehouseStock> stockMap = stocks.stream()
+                .collect(Collectors.toMap(WarehouseStock::getProductId, s -> s));
+
+        double totalWeight = 0;
+        double totalVolume = 0;
+        boolean anyFragile = false;
+
+        for (Map.Entry<UUID, Long> entry : products.entrySet()) {
+            UUID productId = entry.getKey();
+            Long requiredQty = entry.getValue();
+
+            if (requiredQty <= 0) {
+                throw new IllegalArgumentException("Quantity must be positive for product " + productId);
+            }
+
+            WarehouseStock stock = stockMap.get(productId);
+            if (stock == null) {
+                throw new ProductInShoppingCartLowQuantityInWarehouse(
+                        "Product not found in warehouse: " + productId,
+                        "Товар не найден на складе",
+                        400,
+                        null
+                );
+            }
+
+            if (stock.getQuantity() < requiredQty) {
+                throw new ProductInShoppingCartLowQuantityInWarehouse(
+                        "Not enough quantity for product " + productId +
+                                ": required " + requiredQty + ", available " + stock.getQuantity(),
+                        "Недостаточно товара на складе: требуется " + requiredQty +
+                                ", доступно " + stock.getQuantity(),
+                        400,
+                        null
+                );
+            }
+
+            totalWeight += stock.getWeight() * requiredQty;
+            totalVolume += stock.getVolume() * requiredQty;
+            if (stock.isFragile()) {
+                anyFragile = true;
+            }
+        }
+
+        BookedProductsDto dto = new BookedProductsDto(totalWeight, totalVolume, anyFragile);
+        return new ValidationResult(dto, stockMap);
+    }
+
+    private static class ValidationResult {
+        final BookedProductsDto dto;
+        final Map<UUID, WarehouseStock> stockMap;
+
+        ValidationResult(BookedProductsDto dto, Map<UUID, WarehouseStock> stockMap) {
+            this.dto = dto;
+            this.stockMap = stockMap;
+        }
+    }
+
 }

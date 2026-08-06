@@ -39,7 +39,7 @@ public class Order {
     private UUID deliveryId;
 
     @Column(name = "total_price", precision = 10, scale = 2)
-    private Long totalPrice; // в копейках/минимальных единицах
+    private Long totalPrice;
 
     @Column(name = "product_price", precision = 10, scale = 2)
     private Long productPrice;

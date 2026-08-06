@@ -28,6 +28,5 @@ public class OrderBooking {
     @Column(nullable = false, columnDefinition = "TIMESTAMP")
     private Instant bookedAt;
 
-    // null = ещё не передан в доставку
     private UUID deliveryId;
 }
