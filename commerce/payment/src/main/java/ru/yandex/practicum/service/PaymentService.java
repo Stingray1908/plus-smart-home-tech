@@ -33,7 +33,7 @@ public class PaymentService {
      * - остальные поля = null (доставка и налоги ещё не рассчитаны)
      */
     public PaymentDto calculateProductsTotal(OrderDto dto) {
-        Map<UUID, Integer> products = dto.getProducts();
+        Map<UUID, Long> products = dto.getProducts();
 
         if (products == null || products.isEmpty()) {
             return PaymentDto.builder()
@@ -46,9 +46,9 @@ public class PaymentService {
 
         double total = 0.0;
 
-        for (Map.Entry<UUID, Integer> entry : products.entrySet()) {
+        for (Map.Entry<UUID, Long> entry : products.entrySet()) {
             UUID productId = entry.getKey();
-            int quantity = entry.getValue();
+            Long quantity = entry.getValue();
 
             var response = storeServiceApi.getProductById(productId);
 

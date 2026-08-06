@@ -248,66 +248,6 @@ public class OrderService {
         }
     }
 
-
-    @Transactional
-    public OrderDto markPaymentFailed(UUID orderId) {
-        if (orderId == null) {
-            throw new IllegalArgumentException("orderId обязателен");
-        }
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
-
-        statusService.transitionTo(orderId, OrderStatus.PAYMENT_FAILED);
-
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
-
-        log.info("Оплата заказа {} завершилась ошибкой, статус установлен: PAYMENT_FAILED", orderId);
-        return toDto(order, itemsByOrder);
-    }
-
-    @Transactional
-    public OrderDto markDelivered(UUID orderId) {
-        if (orderId == null) {
-            throw new IllegalArgumentException("orderId обязателен");
-        }
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
-
-        // Логика смены статуса инкапсулирована в OrderStatusService
-        statusService.transitionTo(orderId, OrderStatus.DELIVERED);
-
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
-
-        log.info("Заказ {} доставлен, статус установлен: DELIVERED", orderId);
-        return toDto(order, itemsByOrder);
-    }
-
-    @Transactional
-    public OrderDto markDeliveryFailed(UUID orderId) {
-        if (orderId == null) {
-            throw new IllegalArgumentException("orderId обязателен");
-        }
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
-
-        // Логика смены статуса инкапсулирована в OrderStatusService
-        statusService.transitionTo(orderId, OrderStatus.DELIVERY_FAILED);
-
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
-
-        log.info("Доставка заказа {} завершилась ошибкой, статус установлен: DELIVERY_FAILED", orderId);
-        return toDto(order, itemsByOrder);
-    }
-
     @Transactional(readOnly = true)
     public OrderDto calculateDelivery(UUID orderId) {
         Order order = orderRepository.findById(orderId)
@@ -429,47 +369,6 @@ public class OrderService {
         }
     }
 
-
-    @Transactional
-    public OrderDto markAssembled(UUID orderId) {
-        if (orderId == null) {
-            throw new IllegalArgumentException("orderId обязателен");
-        }
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
-
-        // Логика смены статуса инкапсулирована в OrderStatusService
-        statusService.transitionTo(orderId, OrderStatus.ASSEMBLED);
-
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
-
-        log.info("Заказ {} собран, статус установлен: ASSEMBLED", orderId);
-        return toDto(order, itemsByOrder);
-    }
-
-    @Transactional
-    public OrderDto markAssemblyFailed(UUID orderId) {
-        if (orderId == null) {
-            throw new IllegalArgumentException("orderId обязателен");
-        }
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
-
-        // Логика смены статуса инкапсулирована в OrderStatusService
-        statusService.transitionTo(orderId, OrderStatus.ASSEMBLY_FAILED);
-
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
-
-        log.info("Сборка заказа {} завершилась ошибкой, статус установлен: ASSEMBLY_FAILED", orderId);
-        return toDto(order, itemsByOrder);
-    }
-
     private OrderDto toDto(Order order, Map<UUID, List<OrderItem>> itemsByOrder) {
         List<OrderItem> currentItems = itemsByOrder.getOrDefault(order.getId(), Collections.emptyList());
 
@@ -523,19 +422,52 @@ public class OrderService {
             return price;
 
         } catch (Exception e) {
-            // Fallback: если delivery недоступен — считаем по формуле
-            log.warn("Не удалось получить стоимость доставки от сервиса delivery, используем формулу как fallback. Причина: {}", e.toString());
-            BookedProductsDto booked = new BookedProductsDto(
-                    order.getDeliveryWeight(),
-                    order.getDeliveryVolume(),
-                    order.getFragile()
-            );
-            double fallbackPrice = calculateDeliveryPrice(booked);
-            log.info("Fallback-расчёт доставки: {}", fallbackPrice);
-            return fallbackPrice;
+            throw new IllegalArgumentException("Не удалось получить стоимость доставки от сервиса delivery, используем формулу как fallback. Причина: {}");
         }
     }
 
+    @Transactional
+    private OrderDto markOrderStatus(UUID orderId, OrderStatus targetStatus, String actionLog) {
+        if (orderId == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
+
+        statusService.transitionTo(orderId, targetStatus);
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
+
+        log.info(actionLog, orderId);
+        return toDto(order, itemsByOrder);
+    }
+
+    public OrderDto markPaymentFailed(UUID orderId) {
+        return markOrderStatus(orderId, OrderStatus.PAYMENT_FAILED, "Оплата заказа {} завершилась ошибкой, статус установлен: PAYMENT_FAILED");
+    }
+
+    public OrderDto markDelivered(UUID orderId) {
+        return markOrderStatus(orderId, OrderStatus.DELIVERED, "Заказ {} доставлен, статус установлен: DELIVERED");
+    }
+
+    public OrderDto markDeliveryFailed(UUID orderId) {
+        return markOrderStatus(orderId, OrderStatus.DELIVERY_FAILED, "Доставка заказа {} завершилась ошибкой, статус установлен: DELIVERY_FAILED");
+    }
+
+    public OrderDto markAssembled(UUID orderId) {
+        return markOrderStatus(orderId, OrderStatus.ASSEMBLED, "Заказ {} собран, статус установлен: ASSEMBLED");
+    }
+
+    public OrderDto markAssemblyFailed(UUID orderId) {
+        return markOrderStatus(orderId, OrderStatus.ASSEMBLY_FAILED, "Сборка заказа {} завершилась ошибкой, статус установлен: ASSEMBLY_FAILED");
+    }
+
+    public OrderDto markCompleted(UUID orderId) {
+        return markOrderStatus(orderId, OrderStatus.COMPLETED, "Сборка заказа {} завершилась, статус установлен: COMPLETED");
+    }
 
     private Long calculateProductPrice(Map<UUID, Long> products) { return 1000L; }
     private Long calculateDeliveryPrice(BookedProductsDto b) {
