@@ -49,28 +49,15 @@ public class OrderService {
         var response = warehouseServiceApi.check(cart);
         BookedProductsDto booked = response.getBody();
 
-        Long productPrice = calculateProductPrice(cart.getProducts());
-
-        // Создаём временную сущность Order только для передачи параметров в getDeliveryPriceFromServiceOrFallback
-        Order tempOrder = Order.builder()
-                .deliveryWeight(booked.getDeliveryWeight())
-                .deliveryVolume(booked.getDeliveryVolume())
-                .fragile(booked.isFragile())
-                .build();
-
-        Double deliveryPriceDouble = getDeliveryPriceFromServiceOrFallback(tempOrder);
-        Long deliveryPrice = deliveryPriceDouble.longValue();
-
-        Long totalPrice = productPrice + deliveryPrice;
-
         UUID orderId = UUID.randomUUID();
+
         Order order = Order.builder()
                 .id(orderId)
                 .shoppingCartId(cart.getShoppingCartId())
                 .state(OrderStatus.NEW)
-                .totalPrice(totalPrice)
-                .productPrice(productPrice)
-                .deliveryPrice(deliveryPrice)
+                .totalPrice(0L)
+                .productPrice(0L)
+                .deliveryPrice(0L)
                 .deliveryWeight(booked.getDeliveryWeight())
                 .deliveryVolume(booked.getDeliveryVolume())
                 .fragile(booked.isFragile())
@@ -89,12 +76,48 @@ public class OrderService {
                 .toList();
         orderItemRepository.saveAll(items);
 
+        // --- РАСЧЁТ ЧЕРЕЗ PAYMENT-СЕРВИС ---
+        OrderDto orderDtoForCalculation = OrderDto.builder()
+                .orderId(order.getId())
+                .shoppingCartId(order.getShoppingCartId())
+                .products(cart.getProducts())
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                .build();
+
+        try {
+            var totalCostResp = paymentServiceApi.calculateTotalCost(orderDtoForCalculation);
+            if (!totalCostResp.getStatusCode().is2xxSuccessful()) {
+                throw new IllegalArgumentException("Не удалось рассчитать полную стоимость: " + totalCostResp.getStatusCodeValue());
+            }
+            Double totalPriceDouble = totalCostResp.getBody();
+            if (totalPriceDouble == null) {
+                throw new IllegalArgumentException("Пустой ответ от payment.calculateTotalCost");
+            }
+            long totalPrice = totalPriceDouble.longValue();
+
+            Double deliveryPriceDouble = getDeliveryPriceFromServiceOrFallback(order);
+            long deliveryPrice = deliveryPriceDouble.longValue();
+            long productPrice = Math.max(0, totalPrice - deliveryPrice);
+
+            order.setTotalPrice(totalPrice);
+            order.setDeliveryPrice(deliveryPrice);
+            order.setProductPrice(productPrice);
+            order = orderRepository.save(order);
+        } catch (IllegalArgumentException e) {
+            log.error("Критическая ошибка расчёта стоимости при создании заказа {}. Отменяем.", order.getId(), e);
+            throw e;
+        }
+        // ---------------------------------
+
         Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
                 .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
 
-        log.info("Заказ создан: orderId={}, totalPrice={}", orderId, totalPrice);
+        log.info("Заказ создан: orderId={}, totalPrice={}", order.getId(), order.getTotalPrice());
         return toDto(order, itemsByOrder);
     }
+
 
     public List<OrderDto> getOrdersByUsername(String username, int page, int size) {
         if (username == null || username.isBlank()) {
@@ -159,39 +182,62 @@ public class OrderService {
 
     @Transactional
     public OrderDto payOrder(UUID orderId) {
+        log.info("Начало процесса оплаты для заказа: {}", orderId);
+
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new NoOrderFoundException("Заказ не найден", 400));
 
-        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> order.getId()));
-
-        OrderDto orderDtoForPayment = toDto(order, itemsByOrder);
-        orderDtoForPayment.setPaymentId(order.getId());
-        orderDtoForPayment.setDeliveryId(order.getId());
-
-        // РЕАЛИЗОВАТЬ
-
-        // var response = paymentServiceApi.createPayment(orderDtoForPayment);
-        PaymentDto paymentResponse = new PaymentDto(); //response.getBody();
-
-
-        //РЕАЛИЗОВАТЬ
-
-        if (paymentResponse == null || paymentResponse.getPaymentId() == null) {
-            throw new IllegalStateException("Некорректный ответ платёжного шлюза");
+        if (order.getState() != OrderStatus.NEW && order.getState() != OrderStatus.ASSEMBLED) {
+            throw new IllegalStateException("Оплата возможна только для заказов в статусе NEW или ASSEMBLED. Текущий статус: " + order.getState());
         }
 
-        order.setPaymentId(paymentResponse.getPaymentId());
-        order.setTotalPrice(100L);
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<UUID, Long> productsMap = items.stream()
+                .filter(i -> i.getQuantity() > 0)
+                .collect(Collectors.toMap(
+                        OrderItem::getProductId,
+                        OrderItem::getQuantity
+                ));
 
-        // Статус ставим через отдельный сервис, чтобы логика переходов была в одном месте
-        statusService.transitionTo(order.getId(), OrderStatus.PAID);
+        OrderDto orderDtoForPayment = OrderDto.builder()
+                .orderId(order.getId())
+                .shoppingCartId(order.getShoppingCartId())
+                .products(productsMap)
+                .paymentId(order.getPaymentId())
+                .deliveryId(order.getDeliveryId())
+                .state(order.getState())
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                .totalPrice(order.getTotalPrice())
+                .deliveryPrice(order.getDeliveryPrice())
+                .productPrice(order.getProductPrice())
+                .build();
 
-        log.info("Оплата успешна: orderId={}, paymentId={}", order.getId(), order.getPaymentId());
+        var paymentResponse = paymentServiceApi.createPayment(orderDtoForPayment);
 
-        return toDto(order, itemsByOrder);
+        if (!paymentResponse.getStatusCode().is2xxSuccessful()) {
+            log.error("Платёж отклонён сервисом payment: status={}", paymentResponse.getStatusCodeValue());
+            return markPaymentFailed(orderId);
+        }
+
+        PaymentDto paymentDto = paymentResponse.getBody();
+        if (paymentDto == null || paymentDto.getPaymentId() == null) {
+            throw new IllegalStateException("Некорректный ответ платёжного шлюза: нет paymentId");
+        }
+
+        log.info("Платёж успешен: orderId={}, paymentId={}", orderId, paymentDto.getPaymentId());
+
+        order.setPaymentId(paymentDto.getPaymentId());
+        if (paymentDto.getTotalPayment() != null) {
+            order.setTotalPrice(paymentDto.getTotalPayment().longValue());
+        }
+
+        statusService.transitionTo(orderId, OrderStatus.PAID);
+
+        return toDto(order, Map.of(orderId, items));
     }
+
 
     private void sendReturnToWarehouse(Map<UUID, Long> returns) {
         for (var entry : returns.entrySet()) {
@@ -262,30 +308,8 @@ public class OrderService {
         return toDto(order, itemsByOrder);
     }
 
-    @Transactional
-    public OrderDto markCompleted(UUID orderId) {
-        if (orderId == null) {
-            throw new IllegalArgumentException("orderId обязателен");
-        }
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
-
-        // Логика смены статуса инкапсулирована в OrderStatusService
-        statusService.transitionTo(orderId, OrderStatus.COMPLETED);
-
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
-
-        log.info("Заказ {} завершён, статус установлен: COMPLETED", orderId);
-        return toDto(order, itemsByOrder);
-    }
-
     @Transactional(readOnly = true)
     public OrderDto calculateDelivery(UUID orderId) {
-        log.info("Отдельный расчёт доставки (реальный вызов): orderId={}", orderId);
-
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> {
                     log.warn("Заказ не найден: orderId={}", orderId);
@@ -295,19 +319,12 @@ public class OrderService {
         Double deliveryPriceDouble = getDeliveryPriceFromServiceOrFallback(order);
         long deliveryPrice = deliveryPriceDouble.longValue();
 
-        // Считаем productPrice по позициям
         List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        long productPrice = items.stream()
-                .mapToLong(item -> item.getPriceAtMoment() * item.getQuantity())
-                .sum();
-
-        long totalPrice = productPrice + deliveryPrice;
-
-        Map<UUID, Integer> productsMap = items.stream()
+        Map<UUID, Long> productsMap = items.stream()
                 .filter(i -> i.getQuantity() > 0)
                 .collect(Collectors.toMap(
                         OrderItem::getProductId,
-                        item -> item.getQuantity().intValue()
+                        item -> item.getQuantity()
                 ));
 
         return OrderDto.builder()
@@ -320,10 +337,96 @@ public class OrderService {
                 .deliveryWeight(order.getDeliveryWeight())
                 .deliveryVolume(order.getDeliveryVolume())
                 .fragile(order.getFragile())
-                .totalPrice(totalPrice)
+                .totalPrice(deliveryPrice)
                 .deliveryPrice(deliveryPrice)
-                .productPrice(productPrice)
+                .productPrice(0L)
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public OrderDto calculateTotal(UUID orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> {
+                    log.warn("Заказ не найден: orderId={}", orderId);
+                    throw new NoOrderFoundException("Заказ не найден: " + orderId, 400);
+                });
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<UUID, Long> productsMap = items.stream()
+                .filter(i -> i.getQuantity() > 0)
+                .collect(Collectors.toMap(
+                        OrderItem::getProductId,
+                        item -> item.getQuantity()
+                ));
+
+        OrderDto orderDtoForCalculation = OrderDto.builder()
+                .orderId(order.getId())
+                .shoppingCartId(order.getShoppingCartId())
+                .products(productsMap)
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                .build();
+
+        try {
+            var totalCostResponse = paymentServiceApi.calculateTotalCost(orderDtoForCalculation);
+            if (!totalCostResponse.getStatusCode().is2xxSuccessful()) {
+                log.error("Сервис payment вернул ошибку при расчёте полной стоимости: {}", totalCostResponse.getStatusCodeValue());
+                throw new IllegalStateException("Не удалось рассчитать полную стоимость заказа");
+            }
+
+            Double totalPriceDouble = totalCostResponse.getBody();
+            if (totalPriceDouble == null) {
+                throw new IllegalArgumentException("Пустой ответ от сервиса оплаты");
+            }
+            long totalPrice = totalPriceDouble.longValue();
+
+            Double deliveryPriceDouble = getDeliveryPriceFromServiceOrFallback(order);
+            long deliveryPrice = deliveryPriceDouble.longValue();
+            long productPrice = Math.max(0, totalPrice - deliveryPrice);
+
+            log.info("Полная стоимость заказа {} рассчитана: total={}, delivery={}, product={}",
+                    orderId, totalPrice, deliveryPrice, productPrice);
+
+            return OrderDto.builder()
+                    .orderId(order.getId())
+                    .shoppingCartId(order.getShoppingCartId())
+                    .products(productsMap)
+                    .paymentId(order.getPaymentId())
+                    .deliveryId(order.getDeliveryId())
+                    .state(order.getState())
+                    .deliveryWeight(order.getDeliveryWeight())
+                    .deliveryVolume(order.getDeliveryVolume())
+                    .fragile(order.getFragile())
+                    .totalPrice(totalPrice)
+                    .deliveryPrice(deliveryPrice)
+                    .productPrice(productPrice)
+                    .build();
+
+        } catch (IllegalArgumentException e) {
+            log.warn("Не удалось получить полную стоимость от payment, возвращаем текущие цены из БД. Причина: {}", e.toString());
+            Map<UUID, Long> currentProducts = items.stream()
+                    .filter(i -> i.getQuantity() > 0)
+                    .collect(Collectors.toMap(
+                            OrderItem::getProductId,
+                            item -> item.getQuantity()
+                    ));
+
+            return OrderDto.builder()
+                    .orderId(order.getId())
+                    .shoppingCartId(order.getShoppingCartId())
+                    .products(currentProducts)
+                    .paymentId(order.getPaymentId())
+                    .deliveryId(order.getDeliveryId())
+                    .state(order.getState())
+                    .deliveryWeight(order.getDeliveryWeight())
+                    .deliveryVolume(order.getDeliveryVolume())
+                    .fragile(order.getFragile())
+                    .totalPrice(order.getTotalPrice())
+                    .deliveryPrice(order.getDeliveryPrice())
+                    .productPrice(order.getProductPrice())
+                    .build();
+        }
     }
 
 
@@ -370,11 +473,11 @@ public class OrderService {
     private OrderDto toDto(Order order, Map<UUID, List<OrderItem>> itemsByOrder) {
         List<OrderItem> currentItems = itemsByOrder.getOrDefault(order.getId(), Collections.emptyList());
 
-        Map<UUID, Integer> productsMap = currentItems.stream()
+        Map<UUID, Long> productsMap = currentItems.stream()
                 .filter(i -> i.getQuantity() > 0)
                 .collect(Collectors.toMap(
                         OrderItem::getProductId,
-                        item -> item.getQuantity().intValue()
+                        OrderItem::getQuantity
                 ));
 
         return OrderDto.builder()
@@ -390,60 +493,6 @@ public class OrderService {
                 .totalPrice(order.getTotalPrice())
                 .deliveryPrice(order.getDeliveryPrice())
                 .productPrice(order.getProductPrice())
-                .build();
-    }
-
-    @Transactional(readOnly = true)
-    public OrderDto calculateTotal(UUID orderId) {
-        log.info("Расчёт полной стоимости заказа (с реальным вызовом delivery): orderId={}", orderId);
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> {
-                    log.warn("Заказ не найден: orderId={}", orderId);
-                    throw new NoOrderFoundException("Заказ не найден: " + orderId, 404);
-                });
-
-        // Считаем стоимость товаров
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        long productPrice = items.stream()
-                .mapToLong(item -> item.getPriceAtMoment() * item.getQuantity())
-                .sum();
-
-        // Реальный расчёт доставки через Feign
-        Double deliveryPriceDouble = getDeliveryPriceFromServiceOrFallback(order);
-
-        long deliveryPrice = deliveryPriceDouble.longValue();
-        long totalPrice = productPrice + deliveryPrice;
-
-        // Обновляем значения в сущности (если по ТЗ нужно хранить актуальные суммы)
-        order.setProductPrice(productPrice);
-        order.setDeliveryPrice(deliveryPrice);
-        order.setTotalPrice(totalPrice);
-        // orderRepository.save(order); // раскомментируй, если нужно сохранять пересчитанные суммы
-
-        Map<UUID, Integer> productsMap = items.stream()
-                .filter(i -> i.getQuantity() > 0)
-                .collect(Collectors.toMap(
-                        OrderItem::getProductId,
-                        item -> item.getQuantity().intValue()
-                ));
-
-        log.info("Итоговый расчёт заказа {}: productPrice={}, deliveryPrice={}, totalPrice={}",
-                orderId, productPrice, deliveryPrice, totalPrice);
-
-        return OrderDto.builder()
-                .orderId(order.getId())
-                .shoppingCartId(order.getShoppingCartId())
-                .products(productsMap)
-                .paymentId(order.getPaymentId())
-                .deliveryId(order.getDeliveryId())
-                .state(order.getState())
-                .deliveryWeight(order.getDeliveryWeight())
-                .deliveryVolume(order.getDeliveryVolume())
-                .fragile(order.getFragile())
-                .totalPrice(totalPrice)
-                .deliveryPrice(deliveryPrice)
-                .productPrice(productPrice)
                 .build();
     }
 
