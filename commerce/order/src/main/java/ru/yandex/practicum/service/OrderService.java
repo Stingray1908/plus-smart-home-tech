@@ -144,99 +144,86 @@ public class OrderService {
 
     @Transactional
     public OrderDto returnOrder(ProductReturnRequest request) {
-        Order order = orderRepository.findById(request.getOrderId())
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден", 400));
+        UUID orderId = request.getOrderId();
+        Map<UUID, Long> productsToReturn = request.getProducts();
 
-        List<OrderItem> items = orderItemRepository.findByOrderId(request.getOrderId());
-        Map<UUID, OrderItem> itemMap = items.stream().collect(Collectors.toMap(OrderItem::getProductId, i -> i));
+        if (productsToReturn == null || productsToReturn.isEmpty()) {
+            throw new IllegalArgumentException("Список возвращаемых товаров не может быть пустым");
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 400));
+
+        OrderStatus currentState = order.getState();
+        log.debug("Статус заказа {}: {}", orderId, currentState);
+
+        // ГЛАВНАЯ ПРОВЕРКА: читаем из enum
+        if (!currentState.canReturn()) {
+            throw new IllegalStateException("Возврат невозможен для заказа со статусом: " + currentState);
+        }
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<UUID, OrderItem> itemMap = items.stream()
+                .collect(Collectors.toMap(OrderItem::getProductId, i -> i));
 
         long newProductPrice = 0;
-        for (var entry : request.getProducts().entrySet()) {
+        Map<UUID, Long> finalProductsToReturnToWarehouse = new HashMap<>();
+
+        for (var entry : productsToReturn.entrySet()) {
             UUID productId = entry.getKey();
             Long returnQty = entry.getValue();
+
             if (returnQty <= 0) continue;
 
             OrderItem item = itemMap.get(productId);
-            if (item == null) throw new IllegalArgumentException("Товар не в заказе");
-            if (returnQty > item.getQuantity()) throw new IllegalArgumentException("Нельзя вернуть больше, чем есть");
+            if (item == null) {
+                throw new IllegalArgumentException("Товар с ID " + productId + " отсутствует в заказе");
+            }
+            if (returnQty > item.getQuantity()) {
+                throw new IllegalArgumentException(
+                        "Нельзя вернуть " + returnQty + " шт. товара " + productId +
+                                ", в заказе только " + item.getQuantity() + " шт."
+                );
+            }
 
             item.setQuantity(item.getQuantity() - returnQty);
             newProductPrice += item.getPriceAtMoment() * item.getQuantity();
+
+            // ASSEMBLY_FAILED — товары не были забронированы на складе
+            if (currentState != OrderStatus.ASSEMBLY_FAILED) {
+                finalProductsToReturnToWarehouse.put(productId, returnQty);
+            }
+        }
+
+        if (!finalProductsToReturnToWarehouse.isEmpty()) {
+            log.info("Отправляем возврат товаров на склад для заказа {}", orderId);
+            warehouseServiceApi.returnProducts(finalProductsToReturnToWarehouse);
+        } else {
+            log.info("Склад не вызывается: статус ASSEMBLY_FAILED или товаров для возврата нет");
         }
 
         order.setProductPrice(newProductPrice);
         order.setTotalPrice(newProductPrice + order.getDeliveryPrice());
 
-        if (items.stream().allMatch(i -> i.getQuantity() == 0)) {
-            // Если все товары возвращены — отменяем заказ
-            statusService.transitionTo(request.getOrderId(), OrderStatus.CANCELED);
+        boolean allItemsReturned = items.stream().allMatch(i -> i.getQuantity() == 0);
+
+        if (allItemsReturned) {
+            order.setState(OrderStatus.CANCELED);
+            log.info("Все товары возвращены, переводим заказ {} в CANCELED", orderId);
         } else {
-            orderRepository.save(order);
+            order.setState(OrderStatus.PRODUCT_RETURNED);
+            log.info("Частичный возврат для заказа {}, статус PRODUCT_RETURNED", orderId);
         }
+
+        orderRepository.save(order);
         orderItemRepository.saveAll(items);
 
         Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
                 .collect(Collectors.groupingBy(i -> order.getId()));
+
         return toDto(order, itemsByOrder);
     }
 
-    @Transactional
-    public OrderDto payOrder(UUID orderId) {
-        log.info("Начало процесса оплаты для заказа: {}", orderId);
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден", 400));
-
-        if (order.getState() != OrderStatus.NEW && order.getState() != OrderStatus.ASSEMBLED) {
-            throw new IllegalStateException("Оплата возможна только для заказов в статусе NEW или ASSEMBLED. Текущий статус: " + order.getState());
-        }
-
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, Long> productsMap = items.stream()
-                .filter(i -> i.getQuantity() > 0)
-                .collect(Collectors.toMap(
-                        OrderItem::getProductId,
-                        OrderItem::getQuantity
-                ));
-
-        OrderDto orderDtoForPayment = OrderDto.builder()
-                .orderId(order.getId())
-                .shoppingCartId(order.getShoppingCartId())
-                .products(productsMap)
-                .paymentId(order.getPaymentId())
-                .deliveryId(order.getDeliveryId())
-                .state(order.getState())
-                .deliveryWeight(order.getDeliveryWeight())
-                .deliveryVolume(order.getDeliveryVolume())
-                .fragile(order.getFragile())
-                .totalPrice(order.getTotalPrice())
-                .deliveryPrice(order.getDeliveryPrice())
-                .productPrice(order.getProductPrice())
-                .build();
-
-        var paymentResponse = paymentServiceApi.createPayment(orderDtoForPayment);
-
-        if (!paymentResponse.getStatusCode().is2xxSuccessful()) {
-            log.error("Платёж отклонён сервисом payment: status={}", paymentResponse.getStatusCodeValue());
-            return markPaymentFailed(orderId);
-        }
-
-        PaymentDto paymentDto = paymentResponse.getBody();
-        if (paymentDto == null || paymentDto.getPaymentId() == null) {
-            throw new IllegalStateException("Некорректный ответ платёжного шлюза: нет paymentId");
-        }
-
-        log.info("Платёж успешен: orderId={}, paymentId={}", orderId, paymentDto.getPaymentId());
-
-        order.setPaymentId(paymentDto.getPaymentId());
-        if (paymentDto.getTotalPayment() != null) {
-            order.setTotalPrice(paymentDto.getTotalPayment().longValue());
-        }
-
-        statusService.transitionTo(orderId, OrderStatus.PAID);
-
-        return toDto(order, Map.of(orderId, items));
-    }
 
 
     private void sendReturnToWarehouse(Map<UUID, Long> returns) {
