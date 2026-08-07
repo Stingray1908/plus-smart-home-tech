@@ -7,11 +7,13 @@ import ru.yandex.practicum.api.WarehouseServiceApi;
 import ru.yandex.practicum.dto.*;
 import ru.yandex.practicum.entity.Delivery;
 import ru.yandex.practicum.exception.NoDeliveryFoundException;
+import ru.yandex.practicum.exception.NotEnoughInfoInOrderToCalculateException;
 import ru.yandex.practicum.repository.DeliveryRepository;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -153,66 +155,109 @@ public class DeliveryService {
         return toDto(saved);
     }
 
+    //
     public Double calculateCost(OrderDto orderDto) {
         if (orderDto.getOrderId() == null) {
-            throw new IllegalArgumentException("orderId обязателен");
+            throw new IllegalArgumentException("orderId обязателен для расчёта стоимости");
         }
 
-        // 1. Ищем доставку по заказу (требование ТЗ: 404 если нет доставки)
+        // 1. Находим доставку по заказу
         List<Delivery> deliveries = deliveryRepository.findByOrderId(orderDto.getOrderId());
+
         if (deliveries == null || deliveries.isEmpty()) {
-            throw new NoDeliveryFoundException("Доставка для заказа не найдена: " + orderDto.getOrderId(), 404);
+            log.warn("Не найдена доставка для заказа {}", orderDto.getOrderId());
+            throw new NotEnoughInfoInOrderToCalculateException(
+                    "Доставка для заказа не найдена",
+                    "Не удалось рассчитать стоимость: для заказа не создана доставка",
+                    404, null
+            );
         }
-        Delivery delivery = deliveries.get(0);
 
-        // 2. Получаем адрес склада через Feign
-        AddressDto warehouseAddress = warehouseServiceApi.getAddress().getBody();
-        String warehouseName = warehouseAddress.getCity(); // или street/country — зависит от того, что в ТЗ считается «названием склада»
+        // Защита: если доставок больше одной
+        if (deliveries.size() > 1) {
+            String deliveryIds = deliveries.stream()
+                    .map(Delivery::getId)
+                    .map(UUID::toString)
+                    .collect(Collectors.joining(", "));
 
-        // 3. Базовая ставка
+            log.error("Обнаружено {} доставок для заказа {}: {}. Ожидается ровно одна.",
+                    deliveries.size(), orderDto.getOrderId(), deliveryIds);
+
+            throw new IllegalStateException(
+                    "Для заказа " + orderDto.getOrderId() + " найдено более одной доставки: " + deliveryIds
+            );
+        }
+
+        Delivery delivery = deliveries.getFirst();
+        log.debug("Найдена доставка ID: {} для заказа ID: {}", delivery.getId(), orderDto.getOrderId());
+
+        String warehouseLocation = delivery.getFromCity(); // Сюда при создании положили "ADDRESS_1" или "ADDRESS_2"
+        String fromStreet = delivery.getFromStreet();     // Улица склада
+        String toStreet = delivery.getToStreet();         // Улица клиента
+
+        if (warehouseLocation == null) {
+            log.error("В доставке ID={} не указан адрес склада (fromCity). Невозможно рассчитать стоимость.", delivery.getId());
+            throw new IllegalStateException("Адрес склада не указан в данных доставки");
+        }
+
+        boolean isAddress1 = "ADDRESS_1".equals(warehouseLocation);
+        boolean isAddress2 = "ADDRESS_2".equals(warehouseLocation);
+
+        if (!isAddress1 && !isAddress2) {
+            // Если там что-то другое (опечатка при создании), кидаем понятную ошибку
+            throw new IllegalArgumentException(
+                    "Неизвестный адрес склада в записи доставки: '" + warehouseLocation +
+                            "'. Ожидалось ADDRESS_1 или ADDRESS_2. Проверьте данные доставки."
+            );
+        }
+
+        // 2. Базовая ставка
         double baseRate = 5.0;
         double currentSum = baseRate;
 
-        // 4. Коэффициент склада: ADDRESS_1 → ×1, ADDRESS_2 → ×2, потом складываем с базовой ставкой
-        double warehouseMultiplier = 1.0;
-        if ("ADDRESS_1".equals(warehouseName)) {
-            warehouseMultiplier = 1.0;
-        } else if ("ADDRESS_2".equals(warehouseName)) {
-            warehouseMultiplier = 2.0;
-        } else {
-            // Если склад с другим именем — можно либо кинуть ошибку, либо взять 1.0.
-            // Для курса логичнее кинуть ошибку.
-            throw new IllegalArgumentException("Неизвестный адрес склада: " + warehouseName);
-        }
-
+        // 3. Коэффициент склада
+        double warehouseMultiplier = isAddress1 ? 1.0 : 2.0;
         currentSum = currentSum + (baseRate * warehouseMultiplier);
+        log.debug("Коэффициент склада ({}): множитель {}, итог {}", warehouseLocation, warehouseMultiplier, currentSum);
 
-        // 5. Хрупкость: умножаем текущую сумму на 0.2 и прибавляем
+        // 4. Хрупкость (берём из DTO заказа, так как это свойство груза)
         boolean isFragile = Boolean.TRUE.equals(orderDto.getFragile());
         if (isFragile) {
             currentSum = currentSum + (currentSum * 0.2);
         }
+        log.debug("Учёт хрупкости ({}): итог {}", isFragile, currentSum);
 
-        // 6. Вес: добавляем вес × 0.3
-        double weight = orderDto.getDeliveryWeight() != null ? orderDto.getDeliveryWeight() : 0.0;
+        // 5. Вес (из DTO заказа)
+        double weight = (orderDto.getDeliveryWeight() != null) ? orderDto.getDeliveryWeight() : 0.0;
         currentSum = currentSum + (weight * 0.3);
+        log.debug("Учёт веса ({} кг): итог {}", weight, currentSum);
 
-        // 7. Объём: добавляем объём × 0.2
-        double volume = orderDto.getDeliveryVolume() != null ? orderDto.getDeliveryVolume() : 0.0;
+        // 6. Объём (из DTO заказа)
+        double volume = (orderDto.getDeliveryVolume() != null) ? orderDto.getDeliveryVolume() : 0.0;
         currentSum = currentSum + (volume * 0.2);
+        log.debug("Учёт объёма ({} м³): итог {}", volume, currentSum);
 
-        // 8. Сравнение улиц: если fromStreet (склад) != toStreet (доставка) → добавляем currentSum × 0.2
-        String fromStreet = warehouseAddress.getStreet();
-        String toStreet = delivery.getToStreet(); // адрес доставки хранится в сущности Delivery
-
-        if (fromStreet != null && toStreet != null && !fromStreet.equalsIgnoreCase(toStreet)) {
+        // 7. Сравнение улиц (СКЛАД vs КЛИЕНТ)
+        // Теперь мы сравниваем delivery.getFromStreet() и delivery.getToStreet()
+        if (fromStreet != null && toStreet != null) {
+            if (!fromStreet.equalsIgnoreCase(toStreet)) {
+                log.debug("Улицы разные (Склад: {}, Клиент: {}). Добавляем коэффициент.", fromStreet, toStreet);
+                currentSum = currentSum + (currentSum * 0.2);
+            } else {
+                log.debug("Улицы совпадают ({}). Коэффициент не применяется.", fromStreet);
+            }
+        } else {
+            // Если улицы не заполнены, считаем доставку дальней (по умолчанию, как в ТЗ)
+            log.warn("Одна из улиц не заполнена (Склад: '{}', Клиент: '{}'). Применяем коэффициент за дальнюю доставку.",
+                    fromStreet, toStreet);
             currentSum = currentSum + (currentSum * 0.2);
         }
 
-        log.info("Рассчитана стоимость доставки для заказа {}: {}", orderDto.getOrderId(), currentSum);
-        return currentSum;
-    }
+        double finalCost = Math.round(currentSum * 100.0) / 100.0;
 
+        log.info("Расчёт стоимости доставки для заказа {} завершён. Итоговая стоимость: {}", orderDto.getOrderId(), finalCost);
+        return finalCost;
+    }
 
     private void fillAddress(Delivery entity, AddressDto addr, boolean isFrom) {
         if (addr == null) return;
