@@ -50,6 +50,7 @@ public class OrderController implements OrderServiceApi {
         return ResponseEntity.ok(dto);
     }
 
+    //
     @Override
     public ResponseEntity<OrderDto> payOrder(@RequestBody UUID orderId) {
         OrderDto dto = orderService.payOrder(orderId);

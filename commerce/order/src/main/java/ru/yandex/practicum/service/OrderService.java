@@ -43,6 +43,105 @@ public class OrderService {
     // Этот сервис мы теперь используем только для смены статусов
     private final OrderStatusService statusService;
 
+    @Transactional
+    public OrderDto payOrder(UUID orderId) {
+        // 1. Находим заказ
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> {
+                    log.warn("Заказ не найден: orderId={}", orderId);
+                    throw new NoOrderFoundException("Заказ не найден: " + orderId, 400);
+                });
+
+        // 2. ПРОВЕРКА СТАТУСА: должен быть ASSEMBLED
+        if (order.getState() != OrderStatus.ASSEMBLED) {
+            log.warn("Нельзя оплатить заказ {}: статус={}, ожидается ASSEMBLED", orderId, order.getState());
+            throw new IllegalStateException(
+                    "Оплата возможна только для заказа со статусом ASSEMBLED. Текущий статус: " + order.getState()
+            );
+        }
+
+        // 3. ПРОВЕРКА ЦЕН: доставка и итог должны быть посчитаны
+        if (order.getDeliveryPrice() == null || order.getDeliveryPrice() <= 0) {
+            throw new NotEnoughInfoInOrderToCalculateException(
+                    "Сначала рассчитайте доставку через /api/v1/order/calculate/delivery", 400
+            );
+        }
+        if (order.getTotalPrice() == null || order.getTotalPrice() <= 0) {
+            throw new NotEnoughInfoInOrderToCalculateException(
+                    "Сначала рассчитайте полную стоимость через /api/v1/order/calculate/total", 400
+            );
+        }
+
+        log.info("Начинаем процесс оплаты для заказа {} (статус ASSEMBLED)", orderId);
+
+        // 4. Собираем товары
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<UUID, Long> productsMap = items.stream()
+                .filter(i -> i.getQuantity() > 0)
+                .collect(Collectors.toMap(OrderItem::getProductId, OrderItem::getQuantity));
+
+        // 5. Формируем DTO для отправки в сервис оплаты
+        OrderDto requestDto = OrderDto.builder()
+                .orderId(order.getId())
+                .shoppingCartId(order.getShoppingCartId())
+                .products(productsMap)
+                .deliveryId(order.getDeliveryId())
+                .paymentId(order.getPaymentId())
+                .state(order.getState())
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                // Передаём уже посчитанные цены из БД (без пересчёта)
+                .totalPrice(order.getTotalPrice())
+                .deliveryPrice(order.getDeliveryPrice())
+                .productPrice(order.getProductPrice())
+                .build();
+
+        try {
+            // 6. Вызываем сервис оплаты
+            ResponseEntity<PaymentDto> paymentResponse = paymentServiceApi.createPayment(requestDto);
+
+            if (!paymentResponse.getStatusCode().is2xxSuccessful()) {
+                log.error("Сервис оплаты вернул ошибку при создании платежа: {}", paymentResponse.getStatusCode());
+                throw new IllegalStateException("Не удалось создать платёж в сервисе оплаты");
+            }
+
+            PaymentDto paymentDto = paymentResponse.getBody();
+            if (paymentDto == null) {
+                throw new IllegalArgumentException("Пустой ответ от сервиса оплаты");
+            }
+
+            // 7. Сохраняем ID платежа в заказ
+            order.setPaymentId(paymentDto.getPaymentId());
+            // Можно поменять статус заказа на WAITING_FOR_PAYMENT, если у тебя есть такой статус
+            order.setState(OrderStatus.ON_PAYMENT);
+            orderRepository.save(order);
+
+            log.info("Платёж создан для заказа {}. PaymentId: {}", orderId, paymentDto.getPaymentId());
+
+            // 8. Возвращаем DTO
+            return OrderDto.builder()
+                    .orderId(order.getId())
+                    .shoppingCartId(order.getShoppingCartId())
+                    .products(productsMap)
+                    .paymentId(order.getPaymentId())
+                    .deliveryId(order.getDeliveryId())
+                    .state(order.getState())
+                    .deliveryWeight(order.getDeliveryWeight())
+                    .deliveryVolume(order.getDeliveryVolume())
+                    .fragile(order.getFragile())
+                    .totalPrice(order.getTotalPrice())
+                    .deliveryPrice(order.getDeliveryPrice())
+                    .productPrice(order.getProductPrice())
+                    .build();
+        } catch (NotEnoughInfoInOrderToCalculateException | NoOrderFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Критическая ошибка при запуске оплаты заказа {}", orderId, e);
+            throw new IllegalStateException("Ошибка при запуске процесса оплаты", e);
+        }
+    }
+
     //проверен
     @Transactional
     public OrderDto createOrder(CreateNewOrderRequest request) {
@@ -382,36 +481,7 @@ public class OrderService {
         }
     }
 
-    @Transactional
-    private OrderDto markOrderStatus(UUID orderId, OrderStatus targetStatus, String actionLog) {
-        if (orderId == null) {
-            throw new IllegalArgumentException("orderId обязателен");
-        }
 
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
-
-        statusService.transitionTo(orderId, targetStatus);
-
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
-
-        log.info(actionLog, orderId);
-        return toDto(order, itemsByOrder);
-    }
-
-    public OrderDto markPaymentFailed(UUID orderId) {
-        return markOrderStatus(orderId, OrderStatus.PAYMENT_FAILED, "Оплата заказа {} завершилась ошибкой, статус установлен: PAYMENT_FAILED");
-    }
-
-    public OrderDto markDelivered(UUID orderId) {
-        return markOrderStatus(orderId, OrderStatus.DELIVERED, "Заказ {} доставлен, статус установлен: DELIVERED");
-    }
-
-    public OrderDto markDeliveryFailed(UUID orderId) {
-        return markOrderStatus(orderId, OrderStatus.DELIVERY_FAILED, "Доставка заказа {} завершилась ошибкой, статус установлен: DELIVERY_FAILED");
-    }
 
     //проверен
     public OrderDto markAssembled(UUID orderId) {
@@ -531,6 +601,37 @@ public class OrderService {
 
         return toDto(order, items.stream()
                 .collect(Collectors.groupingBy(i -> order.getId())));
+    }
+
+    @Transactional
+    private OrderDto markOrderStatus(UUID orderId, OrderStatus targetStatus, String actionLog) {
+        if (orderId == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
+
+        statusService.transitionTo(orderId, targetStatus);
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
+
+        log.info(actionLog, orderId);
+        return toDto(order, itemsByOrder);
+    }
+
+    public OrderDto markPaymentFailed(UUID orderId) {
+        return markOrderStatus(orderId, OrderStatus.PAYMENT_FAILED, "Оплата заказа {} завершилась ошибкой, статус установлен: PAYMENT_FAILED");
+    }
+
+    public OrderDto markDelivered(UUID orderId) {
+        return markOrderStatus(orderId, OrderStatus.DELIVERED, "Заказ {} доставлен, статус установлен: DELIVERED");
+    }
+
+    public OrderDto markDeliveryFailed(UUID orderId) {
+        return markOrderStatus(orderId, OrderStatus.DELIVERY_FAILED, "Доставка заказа {} завершилась ошибкой, статус установлен: DELIVERY_FAILED");
     }
 
     public OrderDto markCompleted(UUID orderId) {

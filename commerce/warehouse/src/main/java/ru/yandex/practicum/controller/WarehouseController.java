@@ -57,7 +57,7 @@ public class WarehouseController implements WarehouseServiceApi {
         return ResponseEntity.ok(warehouseService.assembleOrder(request));
     }
 
-    
+
     @Override
     public ResponseEntity<Void> markOrderShipped(@RequestBody ShippedToDeliveryRequest request) {
         warehouseService.markOrderAsShipped(request.getOrderId(), request.getDeliveryId());
