@@ -88,13 +88,13 @@ public class OrderController implements OrderServiceApi {
         var dto = orderService.calculateDelivery(orderId);
         return ResponseEntity.ok(dto);
     }
-
+//
     @Override
     public ResponseEntity<OrderDto> handleAssembly(@RequestBody UUID orderId) {
         var dto = orderService.markAssembled(orderId);
         return ResponseEntity.ok(dto);
     }
-
+//
     @Override
     public ResponseEntity<OrderDto> handleAssemblyFailed(@RequestBody UUID orderId) {
         var dto = orderService.markAssemblyFailed(orderId);

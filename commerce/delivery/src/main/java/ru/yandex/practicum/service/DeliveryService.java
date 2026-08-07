@@ -22,7 +22,6 @@ public class DeliveryService {
     private final WarehouseServiceApi warehouseServiceApi;
 
     public DeliveryDto saveDelivery(DeliveryDto dto) {
-        UUID deliveryId = dto.getDeliveryId();
         UUID orderId = dto.getOrderId();
 
         if (orderId == null) {
@@ -31,45 +30,28 @@ public class DeliveryService {
 
         Delivery entity;
 
-        // Логика создания/обновления (твоя существующая)
-        if (deliveryId != null) {
-            entity = deliveryRepository.findById(deliveryId)
-                    .orElseThrow(() -> new IllegalArgumentException("Доставка не найдена: " + deliveryId));
-            log.info("Обновление доставки с ID {}", deliveryId);
+        // Логика: если ID есть -> обновляем, если нет -> создаем (ID сгенерирует БД)
+        if (dto.getDeliveryId() != null) {
+            entity = deliveryRepository.findById(dto.getDeliveryId())
+                    .orElseThrow(() -> new IllegalArgumentException("Доставка не найдена: " + dto.getDeliveryId()));
+            log.info("Обновление доставки с ID {}", dto.getDeliveryId());
         } else {
             entity = new Delivery();
-            entity.setId(UUID.randomUUID()); // <-- deliveryId генерируется здесь
-            entity.setDeliveryState(DeliveryState.CREATED);
-            log.info("Создание новой доставки с ID {}", entity.getId());
+            log.info("Создание новой доставки (ID будет присвоен БД)");
         }
 
         fillAddress(entity, dto.getFromAddress(), true);
         fillAddress(entity, dto.getToAddress(), false);
+
         entity.setOrderId(orderId);
 
-        if (dto.getDeliveryState() != null && deliveryId != null) {
+        if (dto.getDeliveryState() != null) {
             entity.setDeliveryState(dto.getDeliveryState());
         }
 
         Delivery saved = deliveryRepository.save(entity);
 
-        // ================= ВАЖНО: ДОБАВЛЯЕМ ЭТОТ БЛОК =================
-        // Сразу после сохранения доставки в своей БД, сообщаем складу о привязке
-        ShippedToDeliveryRequest req = new ShippedToDeliveryRequest();
-        req.setOrderId(saved.getOrderId());
-        req.setDeliveryId(saved.getId()); // <-- тот самый ID, который только что сгенерировали
-
-        try {
-            warehouseServiceApi.markOrderShipped(req);
-            log.info("Склад успешно уведомлён о доставке ID={} для заказа {}", saved.getId(), saved.getOrderId());
-        } catch (Exception e) {
-            // Если склад недоступен, у тебя есть fallback.
-            // В учебном проекте можно просто логировать и продолжать,
-            // либо откатить транзакцию (throw e), если нужна строгая согласованность.
-            log.error("Не удалось уведомить склад о доставке ID={}", saved.getId(), e);
-            // Для курса часто достаточно логирования, т.к. fallback вернёт 200 OK
-        }
-        // =============================================================
+        log.info("Доставка сохранена. ID: {}, Заказ: {}", saved.getId(), saved.getOrderId());
 
         return toDto(saved);
     }

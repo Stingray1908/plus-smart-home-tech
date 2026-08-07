@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.GenericGenerator;
 import ru.yandex.practicum.dto.DeliveryState;
 
 import java.time.LocalDateTime;
@@ -19,13 +20,15 @@ import java.util.UUID;
 public class Delivery {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO) // или IDENTITY, если у тебя PostgreSQL/MySQL
+    // Hibernate сам возьмет UUID из БД (PostgreSQL uuid_generate_v4 или аналог)
+    @GeneratedValue(generator = "UUID")
+    @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
     private UUID id;
 
     @Column(name = "order_id", nullable = false)
     private UUID orderId;
 
-    // Вложенные адреса храним как отдельные колонки или JSON — здесь вариант с отдельными полями
+    // --- Адреса ---
     @Column(name = "from_country")
     private String fromCountry;
     @Column(name = "from_city")
@@ -48,6 +51,16 @@ public class Delivery {
     @Column(name = "to_flat")
     private String toFlat;
 
+    // --- Параметры груза (заполняются позже) ---
+    @Column(name = "total_weight")
+    private Double totalWeight;
+
+    @Column(name = "total_volume")
+    private Double totalVolume;
+
+    @Column(name = "is_fragile")
+    private Boolean isFragile;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "delivery_state", nullable = false)
     @Builder.Default
@@ -59,5 +72,9 @@ public class Delivery {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+        // Если state не задан, ставим CREATED (на случай если кто-то создаст через new Delivery())
+        if (this.deliveryState == null) {
+            this.deliveryState = DeliveryState.CREATED;
+        }
     }
 }
