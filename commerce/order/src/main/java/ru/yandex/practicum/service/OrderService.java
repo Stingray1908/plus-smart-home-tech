@@ -79,7 +79,6 @@ public class OrderService {
         long productPriceValue = calculateAndGetProductPrice(order, items);
 
         order.setProductPrice(productPriceValue);
-        order.setTotalPrice(productPriceValue);
         orderRepository.save(order);
 
         orderItemRepository.saveAll(items);

@@ -34,7 +34,9 @@ public class PaymentService {
      * - totalPayment = сумма товаров
      * - остальные поля = null (доставка и налоги ещё не рассчитаны)
      */
-    public double calculateProductsTotal(OrderDto dto) {
+
+    // так то вроде ровно
+    public double calculateProducts(OrderDto dto) {
         if (dto.getProducts() == null || dto.getProducts().isEmpty()) {
             return 0.0;
         }
@@ -69,12 +71,13 @@ public class PaymentService {
      */
     public Double calculateTotalCost(OrderDto orderDto) {
         // 1. Считаем стоимость товаров
-        Double productsTotal = calculateProductsTotal(orderDto);
+        Double productsTotal = calculateProducts(orderDto);
 
         // 2. НДС 10% от стоимости товаров
         double vat = productsTotal * 0.10;
 
         // 3. Стоимость доставки — заглушка
+        // поменять, берем данные из дто, там должна быть цена доставки
         double deliveryTotal = getDeliveryCostStub(orderDto);
 
         // 4. Итоговая сумма
@@ -95,7 +98,7 @@ public class PaymentService {
      * - формирование и возврат PaymentDto
      */
     public PaymentDto createPayment(OrderDto request) {
-        double productsTotal = calculateProductsTotal(request);
+        double productsTotal = calculateProducts(request);
         double vat = productsTotal * 0.10;
         double deliveryTotal = request.getDeliveryPrice() != null
                 ? request.getDeliveryPrice().doubleValue()

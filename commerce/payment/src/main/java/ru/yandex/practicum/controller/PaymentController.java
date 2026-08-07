@@ -42,7 +42,7 @@ public class PaymentController {
      */
     @PostMapping("/productCost")
     public ResponseEntity<Double> calculateProductCost(@RequestBody OrderDto orderDto) {
-        Double dto = paymentService.calculateProductsTotal(orderDto);
+        Double dto = paymentService.calculateProducts(orderDto);
         return ResponseEntity.ok(dto);
     }
 
