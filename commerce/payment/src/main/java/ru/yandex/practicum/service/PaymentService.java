@@ -4,6 +4,7 @@ import jakarta.validation.ValidationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import ru.yandex.practicum.api.OrderServiceApi;
 import ru.yandex.practicum.api.StoreServiceApi;
 import ru.yandex.practicum.dto.OrderDto;
@@ -73,14 +74,18 @@ public class PaymentService {
         // 1. Считаем стоимость товаров
         Double productsTotal = calculateProducts(orderDto);
 
+        // Если товаров нет — возвращаем 0
+        if (productsTotal == null || productsTotal <= 0.0) {
+            productsTotal = 0.0;
+        }
+
         // 2. НДС 10% от стоимости товаров
         double vat = productsTotal * 0.10;
 
-        // 3. Стоимость доставки — заглушка
-        // поменять, берем данные из дто, там должна быть цена доставки
-        double deliveryTotal = getDeliveryCostStub(orderDto);
+        // 3. Стоимость доставки — берём из DTO (она уже посчитана сервисом доставки)
+        double deliveryTotal = (orderDto.getDeliveryPrice() != null) ? orderDto.getDeliveryPrice().doubleValue() : 0.0;
 
-        // 4. Итоговая сумма
+        // 4. Итоговая сумма: товары + НДС + доставка
         double finalTotal = productsTotal + vat + deliveryTotal;
 
         log.debug(
@@ -91,40 +96,47 @@ public class PaymentService {
         return finalTotal;
     }
 
+
     /**
      * Создание оплаты:
      * - расчёт полной стоимости
      * - сохранение в БД со статусом PENDING
      * - формирование и возврат PaymentDto
      */
-    public PaymentDto createPayment(OrderDto request) {
-        double productsTotal = calculateProducts(request);
-        double vat = productsTotal * 0.10;
-        double deliveryTotal = request.getDeliveryPrice() != null
-                ? request.getDeliveryPrice().doubleValue()
-                : 0.0;
+     //
+    @Transactional
+    public Payment createPayment(OrderDto orderDto) {
+        // 1. Считаем стоимость товаров (независимо, чтобы гарантировать корректность расчёта)
+        Double productTotal = calculateProducts(orderDto);
+        if (productTotal == null) {
+            productTotal = 0.0;
+        }
 
-        double finalTotal = productsTotal + vat + deliveryTotal;
+        // 2. Стоимость доставки из DTO
+        Double deliveryPrice = orderDto.getDeliveryPrice().doubleValue();
+
+        // 3. Рассчитываем НДС (10%) строго по алгоритму из ТЗ
+        Double taxAmount = productTotal * 0.10;
+
+        // 4. Считаем итоговую сумму
+        Double totalAmount = orderDto.getTotalPrice().doubleValue();
+
+        log.info("Создание платежа для заказа {}. Товары: {}, Доставка: {}, Налог: {}, Итого: {}",
+                orderDto.getOrderId(), productTotal, deliveryPrice, taxAmount, totalAmount);
 
         Payment payment = Payment.builder()
-                .orderId(request.getOrderId())
-                .shoppingCartId(request.getShoppingCartId())
-                .productTotal(productsTotal)          // ✅ теперь имя совпадает с ТЗ
-                .deliveryPrice(deliveryTotal)
-                .taxAmount(vat)
-                .totalAmount(finalTotal)
+                .orderId(orderDto.getOrderId())
+                .shoppingCartId(orderDto.getShoppingCartId())
+                // Сохраняем все компоненты стоимости, как требует ТЗ
+                .productTotal(productTotal)
+                .deliveryPrice(deliveryPrice)
+                .taxAmount(taxAmount)
+                .totalAmount(totalAmount)
+                // Статус по ТЗ: изначально PENDING
                 .status(PaymentStatus.PENDING)
-                .createdAt(LocalDateTime.now())
                 .build();
 
-        payment = paymentRepository.save(payment);
-
-        return PaymentDto.builder()
-                .paymentId(payment.getId())
-                .totalPayment(payment.getTotalAmount())
-                .deliveryTotal(payment.getDeliveryPrice())
-                .feeTotal(payment.getTaxAmount())
-                .build();
+        return paymentRepository.save(payment);
     }
 
 
