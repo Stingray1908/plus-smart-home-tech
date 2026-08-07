@@ -23,8 +23,8 @@ public class PaymentController {
 
     //
     @PostMapping
-    public ResponseEntity<Double> createPayment(@RequestBody OrderDto request) {
-        Double response = paymentService.calculateProducts(request);
+    public ResponseEntity<PaymentDto> createPayment(@RequestBody OrderDto request) {
+        PaymentDto response = paymentService.createPayment(request);
         return ResponseEntity.ok(response);
     }
 

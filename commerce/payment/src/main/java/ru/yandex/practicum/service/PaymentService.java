@@ -105,7 +105,7 @@ public class PaymentService {
      */
      //
     @Transactional
-    public Payment createPayment(OrderDto orderDto) {
+    public PaymentDto createPayment(OrderDto orderDto) {
         // 1. Считаем стоимость товаров (независимо, чтобы гарантировать корректность расчёта)
         Double productTotal = calculateProducts(orderDto);
         if (productTotal == null) {
@@ -136,7 +136,13 @@ public class PaymentService {
                 .status(PaymentStatus.PENDING)
                 .build();
 
-        return paymentRepository.save(payment);
+        paymentRepository.save(payment);
+        return PaymentDto.builder()
+                .paymentId(payment.getId())
+                .totalPayment(payment.getTotalAmount())      // <-- totalPayment = totalAmount
+                .deliveryTotal(payment.getDeliveryPrice())    // <-- deliveryTotal = deliveryPrice
+                .feeTotal(payment.getTaxAmount())             // <-- feeTotal = taxAmount (НДС)
+                .build();
     }
 
 
