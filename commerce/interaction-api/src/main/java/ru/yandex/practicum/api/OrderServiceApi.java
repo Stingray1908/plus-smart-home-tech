@@ -21,10 +21,10 @@ public interface OrderServiceApi {
     public ResponseEntity<OrderDto> returnOrder(@RequestBody ProductReturnRequest request);
 
     @PostMapping("/payment")
-    public ResponseEntity<OrderDto> payOrder(@RequestBody UUID orderId);
+    public ResponseEntity<OrderDto> markOrderPaymentAsPaid(@RequestBody UUID orderId);
 
     @PostMapping("/payment/failed")
-    public ResponseEntity<OrderDto> handlePaymentFailed(@RequestBody UUID orderId);
+    public ResponseEntity<OrderDto> markOrderPaymentAsFailed(@RequestBody UUID orderId);
 
     @PostMapping("/delivery")
     public ResponseEntity<OrderDto> handleDelivery(@RequestBody UUID orderId);

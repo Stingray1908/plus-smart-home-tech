@@ -58,7 +58,7 @@ public class PaymentController {
      * Логика: найти платёж -> поставить статус SUCCESS -> вызвать сервис заказов.
      */
 
-
+//
     @PostMapping("/refund")
     public ResponseEntity<PaymentDto> simulateSuccessPayment(@RequestBody UUID paymentId) {
         PaymentDto dto = paymentService.markPaymentSuccess(paymentId);
@@ -70,6 +70,8 @@ public class PaymentController {
      * Эмуляция отказа в оплате от платёжного шлюза.
      * Логика: найти платёж -> поставить статус FAILED -> вызвать сервис заказов.
      */
+
+    //
     @PostMapping("/failed")
     public ResponseEntity<PaymentDto> simulateFailedPayment(@RequestBody UUID paymentId) {
         PaymentDto dto = paymentService.markPaymentFailed(paymentId);

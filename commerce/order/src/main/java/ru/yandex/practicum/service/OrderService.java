@@ -150,22 +150,42 @@ public class OrderService {
             throw new IllegalArgumentException("Корзина не может быть пустой");
         }
 
-        var response = warehouseServiceApi.check(cart);
-        BookedProductsDto booked = response.getBody();
+        // 1. Проверка наличия на складе
+        var checkResponse = warehouseServiceApi.check(cart);
+        if (!checkResponse.getStatusCode().is2xxSuccessful()) {
+            throw new IllegalStateException("Не удалось проверить наличие товаров на складе");
+        }
+        BookedProductsDto booked = checkResponse.getBody();
 
+        double totalWeight = booked.getDeliveryWeight();
+        double totalVolume = booked.getDeliveryVolume();
+        boolean fragile = booked.isFragile();
+
+        // 2. Получаем адрес склада
+        AddressDto warehouseAddress = warehouseServiceApi.getAddress()
+                .getBody();
+
+        // Адрес доставки от пользователя
+        AddressDto deliveryAddress = request.getDeliveryAddress();
+        if (deliveryAddress == null) {
+            throw new IllegalArgumentException("Адрес доставки обязателен для создания заказа");
+        }
+
+        // 3. Создаём заказ (статус NEW)
         Order order = Order.builder()
                 .shoppingCartId(cart.getShoppingCartId())
                 .state(OrderStatus.NEW)
                 .totalPrice(0L)
                 .productPrice(0L)
-                .deliveryPrice(0L)
-                .deliveryWeight(booked.getDeliveryWeight())
-                .deliveryVolume(booked.getDeliveryVolume())
-                .fragile(booked.isFragile())
+                .deliveryPrice(0L) // пока 0, цена доставки будет позже
+                .deliveryWeight(totalWeight)
+                .deliveryVolume(totalVolume)
+                .fragile(fragile)
                 .build();
 
         order = orderRepository.save(order);
 
+        // 4. Создаём позиции заказа
         Order finalOrder = order;
         List<OrderItem> items = cart.getProducts().entrySet().stream()
                 .map(entry -> OrderItem.builder()
@@ -177,21 +197,104 @@ public class OrderService {
                 .toList();
 
         long productPriceValue = calculateAndGetProductPrice(order, items);
-
         order.setProductPrice(productPriceValue);
+        order.setTotalPrice(productPriceValue); // пока без доставки
         orderRepository.save(order);
 
         orderItemRepository.saveAll(items);
 
-        log.info("Заказ создан: orderId={}, productPrice={}, totalPrice={}",
-                order.getId(), order.getProductPrice(), order.getTotalPrice());
+        // 5. Создаём доставку (получаем deliveryId)
+        DeliveryDto deliveryDto = DeliveryDto.builder()
+                .fromAddress(warehouseAddress)
+                .toAddress(deliveryAddress)
+                .orderId(order.getId())
+                .deliveryState(DeliveryState.CREATED)
+                .build();
 
-        Order finalOrder1 = order;
+        var deliveryResponse = deliveryServiceApi.createOrUpdateDelivery(deliveryDto);
+        if (!deliveryResponse.getStatusCode().is2xxSuccessful() || deliveryResponse.getBody() == null) {
+            throw new IllegalStateException("Не удалось создать доставку в сервисе доставки");
+        }
+        deliveryDto = deliveryResponse.getBody();
+
+        UUID deliveryId = deliveryDto.getDeliveryId();
+        if (deliveryId == null) {
+            throw new IllegalStateException("Сервис доставки не вернул deliveryId");
+        }
+
+        order.setDeliveryId(deliveryId);
+        orderRepository.save(order);
+
+        // ------------------------------------------------------------------
+        // 6. ОТДЕЛЬНЫЙ ЗАПРОС ЦЕНЫ ДОСТАВКИ (костыль, но в рамках ТЗ)
+        // Используем Feign-метод calculateDeliveryCost из DeliveryServiceApi
+        // ------------------------------------------------------------------
+
+        OrderDto deliveryCostRequest = OrderDto.builder()
+                .orderId(order.getId())
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                .build();
+
+        ResponseEntity<Double> deliveryCostResponse = deliveryServiceApi.calculateDeliveryCost(deliveryCostRequest);
+        if (!deliveryCostResponse.getStatusCode().is2xxSuccessful() || deliveryCostResponse.getBody() == null) {
+            throw new IllegalStateException(
+                    "Не удалось рассчитать стоимость доставки: сервис вернул статус " + deliveryCostResponse.getStatusCode()
+            );
+        }
+        Double deliveryPriceValue = deliveryCostResponse.getBody();
+        long deliveryPriceLong = Math.round(deliveryPriceValue);
+
+        // Сохраняем цену доставки в заказ (чтобы она была в БД и для отладки)
+        order.setDeliveryPrice(deliveryPriceLong);
+        orderRepository.save(order);
+
+        // ------------------------------------------------------------------
+        // 7. ЗАПУСК ПРОЦЕССА ОПЛАТЫ
+        // Теперь передаём в payment-service уже известную цену доставки
+        // ------------------------------------------------------------------
+
+        Map<UUID, Long> productsMap = cart.getProducts();
+
+        OrderDto orderDtoForPayment = OrderDto.builder()
+                .orderId(order.getId())
+                .shoppingCartId(order.getShoppingCartId())
+                .products(productsMap)
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                .deliveryPrice(deliveryPriceValue.longValue()) // теперь тут реальная цена
+                .build();
+
+        var paymentResponse = paymentServiceApi.createPayment(orderDtoForPayment);
+
+        if (!paymentResponse.getStatusCode().is2xxSuccessful() || paymentResponse.getBody() == null) {
+            throw new IllegalStateException("Не удалось запустить процесс оплаты: платёж не создан");
+        }
+        PaymentDto paymentDto = paymentResponse.getBody();
+
+        if (paymentDto.getPaymentId() == null) {
+            throw new IllegalStateException("Платёж создан, но не вернул paymentId");
+        }
+
+        order.setPaymentId(paymentDto.getPaymentId());
+
+        Long finalTotalPrice = (paymentDto.getTotalPayment() != null)
+                ? Math.round(paymentDto.getTotalPayment())
+                : 0L;
+        order.setTotalPrice(finalTotalPrice);
+
+        orderRepository.save(order);
+
+        // ------------------------------------------------------------------
+
         Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> finalOrder1.getId()));
+                .collect(Collectors.groupingBy(item -> item.getOrder().getId()));
 
         return toDto(order, itemsByOrder);
     }
+
 
     // верен
     public List<OrderDto> getOrdersByUsername(String username, int page, int size) {
@@ -450,39 +553,6 @@ public class OrderService {
                 .build();
     }
 
-    private Double getDeliveryPriceFromServiceOrFallback(Order order) {
-        try {
-            OrderDto requestDto = OrderDto.builder()
-                    .orderId(order.getId())
-                    .deliveryWeight(order.getDeliveryWeight())
-                    .deliveryVolume(order.getDeliveryVolume())
-                    .fragile(order.getFragile())
-                    .build();
-
-            var resp = deliveryServiceApi.calculateDeliveryCost(requestDto);
-            log.debug("Ответ от delivery/cost: status={}", resp.getStatusCodeValue());
-
-            if (!resp.getStatusCode().is2xxSuccessful()) {
-                log.warn("delivery вернул не 200: status={}, orderId={}", resp.getStatusCodeValue(), order.getDeliveryId());
-                throw new IllegalStateException("Не удалось рассчитать доставку (статус: " + resp.getStatusCodeValue() + ")");
-            }
-
-            Double price = resp.getBody();
-            if (price == null) {
-                log.warn("Пустой body от delivery для заказа: {}", order.getDeliveryId());
-                throw new IllegalStateException("Пустой ответ от сервиса доставки");
-            }
-
-            log.info("Реальная стоимость доставки получена: {}", price);
-            return price;
-
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Не удалось получить стоимость доставки от сервиса delivery, используем формулу как fallback. Причина: {}");
-        }
-    }
-
-
-
     //проверен
     public OrderDto markAssembled(UUID orderId) {
         // 1. Находим заказ
@@ -622,9 +692,62 @@ public class OrderService {
         return toDto(order, itemsByOrder);
     }
 
-    public OrderDto markPaymentFailed(UUID orderId) {
-        return markOrderStatus(orderId, OrderStatus.PAYMENT_FAILED, "Оплата заказа {} завершилась ошибкой, статус установлен: PAYMENT_FAILED");
-    }
+        @Transactional
+        public OrderDto markOrderPaymentAsPaid(UUID orderId) {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new NoOrderFoundException("Заказ не найден для обновления статуса", 404));
+
+            // Меняем статус на PAID (или тот, который у тебя в enum)
+            order.setState(OrderStatus.PAID);
+            orderRepository.save(order);
+            log.info("Заказ {} помечен как оплаченный, статус: {}", orderId, order.getState());
+
+            // Собираем DTO для возврата
+            return buildOrderDto(order);
+        }
+
+        @Transactional
+        public OrderDto markOrderPaymentAsFailed(UUID orderId) {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new NoOrderFoundException("Заказ не найден для обновления статуса", 404));
+
+            // Логика: при ошибке оплаты часто возвращают заказ в NEW (чтобы можно было оформить заново)
+            // Либо ставят CANCELLED — выбери тот статус, который соответствует твоему ТЗ
+            order.setState(OrderStatus.NEW);
+            orderRepository.save(order);
+            log.info("Заказ {} помечен как ошибка оплаты, статус: {}", orderId, order.getState());
+
+            // Собираем DTO для возврата
+            return buildOrderDto(order);
+        }
+
+        /**
+         * Вспомогательный метод, чтобы не дублировать сборку DTO.
+         * Подставь сюда все поля, которые нужны в твоём OrderDto.
+         */
+        private OrderDto buildOrderDto(Order order) {
+            List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+            Map<UUID, Long> productsMap = items.stream()
+                    .filter(i -> i.getQuantity() > 0)
+                    .collect(Collectors.toMap(OrderItem::getProductId, OrderItem::getQuantity));
+
+            return OrderDto.builder()
+                    .orderId(order.getId())
+                    .shoppingCartId(order.getShoppingCartId())
+                    .products(productsMap)
+                    .paymentId(order.getPaymentId())
+                    .deliveryId(order.getDeliveryId())
+                    .state(order.getState())
+                    .deliveryWeight(order.getDeliveryWeight())
+                    .deliveryVolume(order.getDeliveryVolume())
+                    .fragile(order.getFragile())
+                    .totalPrice(order.getTotalPrice())
+                    .deliveryPrice(order.getDeliveryPrice())
+                    .productPrice(order.getProductPrice())
+                    .build();
+        }
+
+
 
     public OrderDto markDelivered(UUID orderId) {
         return markOrderStatus(orderId, OrderStatus.DELIVERED, "Заказ {} доставлен, статус установлен: DELIVERED");

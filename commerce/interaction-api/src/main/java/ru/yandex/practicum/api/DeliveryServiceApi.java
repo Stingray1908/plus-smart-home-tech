@@ -15,6 +15,9 @@ public interface DeliveryServiceApi {
     @PutMapping
     public ResponseEntity<DeliveryDto> createOrUpdateDelivery(@RequestBody DeliveryDto dto);
 
+    @PostMapping("/cost")
+    public ResponseEntity<Double> calculateDeliveryCost(@RequestBody OrderDto dto) ;
+
     @PostMapping("/successful")
     public ResponseEntity<DeliveryDto> markDeliverySuccessful(@RequestBody UUID orderId);
 
@@ -24,7 +27,6 @@ public interface DeliveryServiceApi {
     @PostMapping("/failed")
     public ResponseEntity<DeliveryDto> markDeliveryFailed(@RequestBody UUID orderId);
 
-    @PostMapping("/cost")
-    public ResponseEntity<Double> calculateDeliveryCost(@RequestBody OrderDto dto) ;
+
 
 }

@@ -1,8 +1,10 @@
 package ru.yandex.practicum.service;
 
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import ru.yandex.practicum.api.OrderServiceApi;
 import ru.yandex.practicum.api.WarehouseServiceApi;
 import ru.yandex.practicum.dto.*;
 import ru.yandex.practicum.entity.Delivery;
@@ -22,6 +24,7 @@ public class DeliveryService {
 
     private final DeliveryRepository deliveryRepository;
     private final WarehouseServiceApi warehouseServiceApi;
+    private final OrderServiceApi orderServiceApi;
 
     public DeliveryDto saveDelivery(DeliveryDto dto) {
         UUID orderId = dto.getOrderId();
@@ -63,66 +66,38 @@ public class DeliveryService {
             throw new IllegalArgumentException("orderId обязателен");
         }
 
-        // Ищем доставку по orderId: в ТЗ сказано, что в body — идентификатор заказа
         List<Delivery> deliveries = deliveryRepository.findByOrderId(orderId);
-
         if (deliveries == null || deliveries.isEmpty()) {
-            // Spring превратит это в 404 с полным стеком (как в примере ТЗ)
-            throw new NoDeliveryFoundException("Доставка для заказа не найдена: " + orderId, 404);
-        }
-
-        // По ТЗ — одна доставка на заказ. Если вдруг их несколько — берем первую
-        Delivery delivery = deliveries.get(0);
-
-        // Опционально: защита от повторного перевода в DELIVERED
-        if (delivery.getDeliveryState() == DeliveryState.DELIVERED) {
-            log.warn("Попытка повторно установить DELIVERED для доставки ID={}", delivery.getId());
-            // Можно либо вернуть текущий DTO, либо выбросить ValidationException (400).
-            // Для курса чаще просто возвращают текущее состояние.
-        } else if (delivery.getDeliveryState() == DeliveryState.FAILED || delivery.getDeliveryState() == DeliveryState.CANCELLED) {
-            // Если уже FAILED/CANCELLED — можно либо запретить, либо разрешить (зависит от ТЗ).
-            // Здесь разрешаем, но логируем.
-            log.info("Смена статуса с {} на DELIVERED для заказа {}", delivery.getDeliveryState(), orderId);
-        }
-
-        delivery.setDeliveryState(DeliveryState.DELIVERED);
-        Delivery saved = deliveryRepository.save(delivery);
-
-        log.info("Доставка заказа {} переведена в DELIVERED", orderId);
-        return toDto(saved);
-    }
-
-    public DeliveryDto markDeliveryPicked(UUID orderId) {
-        if (orderId == null) {
-            throw new IllegalArgumentException("orderId обязателен");
-        }
-
-        List<Delivery> deliveries = deliveryRepository.findByOrderId(orderId);
-
-        if (deliveries == null || deliveries.isEmpty()) {
-            // Это даст 404 с полным стеком (как в ТЗ)
             throw new NoDeliveryFoundException("Доставка для заказа не найдена: " + orderId, 404);
         }
 
         Delivery delivery = deliveries.getFirst();
 
-        // Логика статусов:
-        // - Если уже DELIVERED/CANCELLED/FAILED — можно либо запретить, либо просто логировать и не менять.
-        // Для учебной задачи чаще всего просто ставим IN_PROGRESS, если не финальный.
-        if (delivery.getDeliveryState() == DeliveryState.DELIVERED
-                || delivery.getDeliveryState() == DeliveryState.CANCELLED
-                || delivery.getDeliveryState() == DeliveryState.FAILED) {
-            log.warn("Попытка перевести в IN_PROGRESS доставку в финальном статусе {} для заказа {}",
-                    delivery.getDeliveryState(), orderId);
-            // Можно вернуть текущий DTO без изменений
+        // Защита от бессмысленных повторных переводов (опционально)
+        if (delivery.getDeliveryState() == DeliveryState.DELIVERED) {
+            log.warn("Попытка повторно установить DELIVERED для доставки ID={}", delivery.getId());
+            // Можно сразу вернуть DTO без изменений и без вызова order-service,
+            // потому что статус заказа тоже уже должен быть DELIVERED.
             return toDto(delivery);
         }
 
-        delivery.setDeliveryState(DeliveryState.IN_PROGRESS);
-        Delivery saved = deliveryRepository.save(delivery);
+        // 1. Меняем статус доставки
+        delivery.setDeliveryState(DeliveryState.DELIVERED);
+        delivery = deliveryRepository.save(delivery);
+        log.info("Доставка заказа {} переведена в DELIVERED", orderId);
 
-        log.info("Доставка заказа {} переведена в IN_PROGRESS", orderId);
-        return toDto(saved);
+        // 2. Синхронизируем статус заказа в order-service
+        try {
+            orderServiceApi.handleDelivery(orderId);
+            log.info("Статус заказа {} успешно обновлён в order-service: DELIVERED", orderId);
+        } catch (FeignException e) {
+            log.error("Не удалось обновить статус заказа в order-service для orderId={}", orderId, e);
+            // Здесь можно решить: откатывать доставку или нет.
+            // Для учебной задачи чаще всего пробрасывают ошибку дальше.
+            throw e;
+        }
+
+        return toDto(delivery);
     }
 
     public DeliveryDto markDeliveryFailed(UUID orderId) {
@@ -131,29 +106,91 @@ public class DeliveryService {
         }
 
         List<Delivery> deliveries = deliveryRepository.findByOrderId(orderId);
-
         if (deliveries == null || deliveries.isEmpty()) {
-            // Это даст 404 с полным стеком (как в ТЗ)
             throw new NoDeliveryFoundException("Доставка для заказа не найдена: " + orderId, 404);
         }
 
         Delivery delivery = deliveries.get(0);
 
-        // Логирование, если пытаемся перевести в FAILED уже финальный статус
-        if (delivery.getDeliveryState() == DeliveryState.DELIVERED) {
-            log.warn("Попытка установить FAILED для доставки, которая уже в DELIVERED. Заказ: {}", orderId);
-            // Можно либо запретить, либо разрешить — здесь разрешаем, но с предупреждением
-        } else if (delivery.getDeliveryState() == DeliveryState.FAILED) {
+        if (delivery.getDeliveryState() == DeliveryState.FAILED) {
             log.info("Доставка заказа {} уже в статусе FAILED", orderId);
             return toDto(delivery);
         }
 
+        // Меняем статус доставки на FAILED
         delivery.setDeliveryState(DeliveryState.FAILED);
-        Delivery saved = deliveryRepository.save(delivery);
-
+        delivery = deliveryRepository.save(delivery);
         log.info("Доставка заказа {} переведена в FAILED", orderId);
-        return toDto(saved);
+
+        // Синхронизируем статус заказа в order-service
+        try {
+            orderServiceApi.handleDeliveryFailed(orderId);
+            log.info("Статус заказа {} успешно обновлён в order-service: DELIVERY_FAILED", orderId);
+        } catch (FeignException e) {
+            log.error("Не удалось обновить статус заказа в order-service для orderId={}", orderId, e);
+            throw e;
+        }
+
+        return toDto(delivery);
     }
+
+    public DeliveryDto markDeliveryPicked(UUID orderId) {
+        if (orderId == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
+
+        List<Delivery> deliveries = deliveryRepository.findByOrderId(orderId);
+        if (deliveries == null || deliveries.isEmpty()) {
+            throw new NoDeliveryFoundException("Доставка для заказа не найдена: " + orderId, 404);
+        }
+
+        Delivery delivery = deliveries.getFirst();
+
+        // Если уже финальный статус — не меняем доставку, но по ТЗ всё равно должны пройти остальные шаги
+        boolean deliveryUpdated = false;
+        if (!(delivery.getDeliveryState() == DeliveryState.DELIVERED
+                || delivery.getDeliveryState() == DeliveryState.CANCELLED
+                || delivery.getDeliveryState() == DeliveryState.FAILED)) {
+            delivery.setDeliveryState(DeliveryState.IN_PROGRESS);
+            delivery = deliveryRepository.save(delivery);
+            deliveryUpdated = true;
+            log.info("Доставка заказа {} переведена в IN_PROGRESS", orderId);
+        } else {
+            log.warn("Доставка уже в финальном статусе {}, доставка не обновляется, но продолжаем по цепочке",
+                    delivery.getDeliveryState());
+        }
+
+        // 1. Переводим заказ в ASSEMBLED
+        try {
+            orderServiceApi.handleAssembly(orderId);
+            log.info("Заказ {} успешно переведён в статус ASSEMBLED", orderId);
+        } catch (FeignException e) {
+            // Если заказ не удалось перевести в ASSEMBLED — по ТЗ дальше идти нельзя:
+            // мы не должны связывать доставку со складом, если заказ не собран.
+            log.error("Не удалось обновить статус заказа в order-service для orderId={}", orderId, e);
+            if (deliveryUpdated) {
+                // Опционально: можно попробовать откатить статус доставки, если это уместно.
+                // В учебном проекте чаще просто пробрасывают ошибку, без ручного отката.
+            }
+            throw e;
+        }
+
+        // 2. Связываем доставку со складом (shippedToDelivery)
+        ShippedToDeliveryRequest request = new ShippedToDeliveryRequest(orderId, delivery.getId());
+        try {
+            warehouseServiceApi.markOrderShipped(request);
+            log.info("Заказ {} и доставка {} связаны на складе", orderId, delivery.getId());
+        } catch (FeignException e) {
+            log.error("Не удалось связать заказ {} с доставкой {} на складе", orderId, delivery.getId(), e);
+            // Здесь тоже вопрос бизнес‑логики: если склад не принял — можно ли считать доставку принятой?
+            // В учебной задаче обычно пробрасывают ошибку дальше.
+            throw e;
+        }
+
+        return toDto(delivery);
+    }
+
+
 
     //
     public Double calculateCost(OrderDto orderDto) {

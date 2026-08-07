@@ -50,17 +50,16 @@ public class OrderController implements OrderServiceApi {
         return ResponseEntity.ok(dto);
     }
 
-    //
     @Override
-    public ResponseEntity<OrderDto> payOrder(@RequestBody UUID orderId) {
-        OrderDto dto = orderService.payOrder(orderId);
+    public ResponseEntity<OrderDto> markOrderPaymentAsFailed(@RequestBody UUID orderId) {
+        var dto = orderService.markOrderPaymentAsFailed(orderId);
         return ResponseEntity.ok(dto);
     }
 
     @Override
-    public ResponseEntity<OrderDto> handlePaymentFailed(@RequestBody UUID orderId) {
-        var dto = orderService.markPaymentFailed(orderId);
-        return ResponseEntity.ok(dto);
+    public ResponseEntity<OrderDto> markOrderPaymentAsPaid(@RequestBody UUID orderId) {
+        orderService.markOrderPaymentAsPaid(orderId);
+        return ResponseEntity.ok().build();
     }
 
     @Override

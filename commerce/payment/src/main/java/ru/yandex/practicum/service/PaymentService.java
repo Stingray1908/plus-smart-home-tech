@@ -1,5 +1,6 @@
 package ru.yandex.practicum.service;
 
+import feign.FeignException;
 import jakarta.validation.ValidationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -145,7 +146,6 @@ public class PaymentService {
                 .build();
     }
 
-
     /**
      * Формирует PaymentDto из сущности Payment.
      * Вынесено в отдельный метод, чтобы отделить логику маппинга от бизнес-логики.
@@ -159,68 +159,48 @@ public class PaymentService {
                 .build();
     }
 
+    @Transactional
     public PaymentDto markPaymentSuccess(UUID paymentId) {
-        Optional<Payment> optionalPayment = paymentRepository.findById(paymentId);
-        if (optionalPayment.isEmpty()) {
-            throw new PaymentNotFoundException("Платёж не найден: " + paymentId,
-                    404);
-        }
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new IllegalArgumentException("Платёж не найден"));
 
-        Payment payment = optionalPayment.get();
-        if (payment.getStatus() != PaymentStatus.PENDING) {
-            throw new ValidationException(
-                    "Нельзя установить SUCCESS для платежа со статусом: " + payment.getStatus());
-        }
+        // а. Проверить, что идентификатор оплаты существует (сделано выше)
 
+        // b. Изменить статус на SUCCESS
         payment.setStatus(PaymentStatus.SUCCESS);
-        payment.setUpdatedAt(java.time.LocalDateTime.now());
-        Payment saved = paymentRepository.save(payment);
+        paymentRepository.save(payment);
 
-        // Вызываем существующий метод из твоего Feign-клиента
+        // с. Вызвать изменение в сервисе заказов
+        // Мы передаём orderId, который лежит внутри платежа
         try {
-            orderServiceApi.payOrder(saved.getOrderId());
-            log.info("Сервис заказов подтвердил оплату для заказа {}", saved.getOrderId());
-        } catch (Exception e) {
-            log.error("Не удалось уведомить сервис заказов об оплате заказа {}", saved.getOrderId(), e);
-            // Оставляем платёж в SUCCESS — это частый паттерн в учебных задачах
+            orderServiceApi.markOrderPaymentAsPaid(payment.getOrderId());
+            log.info("Статус заказа успешно обновлён в order-service для orderId={}", payment.getOrderId());
+        } catch (FeignException e) {
+            // Критическая ошибка: платёж успешен, а заказ не обновился.
+            // Тут нужна стратегия: либо откатить платёж, либо алерт, либо retry.
+            log.error("Не удалось уведомить сервис заказов об успешной оплате. Платёж: {}, Ошибка: {}", paymentId, e.getMessage());
+            throw new IllegalStateException("Платёж успешен, но сервис заказов недоступен", e);
         }
 
-        return buildPaymentDtoFromEntity(saved);
+        return buildPaymentDtoFromEntity(payment);
     }
 
+    @Transactional
     public PaymentDto markPaymentFailed(UUID paymentId) {
-        Optional<Payment> optionalPayment = paymentRepository.findById(paymentId);
-        if (optionalPayment.isEmpty()) {
-            throw new PaymentNotFoundException("Платёж не найден: " + paymentId,
-                    404);
-        }
-
-        Payment payment = optionalPayment.get();
-        if (payment.getStatus() != PaymentStatus.PENDING) {
-            throw new ValidationException(
-                    "Нельзя установить FAILED для платежа со статусом: " + payment.getStatus());
-        }
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new IllegalArgumentException("Платёж не найден"));
 
         payment.setStatus(PaymentStatus.FAILED);
-        payment.setUpdatedAt(java.time.LocalDateTime.now());
-        Payment saved = paymentRepository.save(payment);
+        paymentRepository.save(payment);
 
-        // Используем существующий метод handlePaymentFailed из твоего Feign
         try {
-            orderServiceApi.handlePaymentFailed(saved.getOrderId());
-            log.info("Сервис заказов уведомлён о неудачной оплате заказа {}", saved.getOrderId());
-        } catch (Exception e) {
-            log.error("Не удалось уведомить сервис заказов о неудачной оплате заказа {}", saved.getOrderId(), e);
+            orderServiceApi.markOrderPaymentAsFailed(payment.getOrderId());
+            log.info("Статус заказа обновлен на FAILED в order-service для orderId={}", payment.getOrderId());
+        } catch (FeignException e) {
+            log.error("Не удалось уведомить сервис заказов о неудачной оплате. Платёж: {}, Ошибка: {}", paymentId, e.getMessage());
+            throw new IllegalStateException("Платёж провален, но сервис заказов недоступен", e);
         }
 
-        return buildPaymentDtoFromEntity(saved);
-    }
-
-    /**
-     * Заглушка для стоимости доставки.
-     * В будущем тут будет вызов DeliveryService / Feign-клиента.
-     */
-    private double getDeliveryCostStub(OrderDto orderDto) {
-        return 50.0; // фиксированная стоимость
+        return buildPaymentDtoFromEntity(payment);
     }
 }
