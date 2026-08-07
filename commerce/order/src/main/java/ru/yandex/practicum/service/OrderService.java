@@ -19,6 +19,7 @@ import ru.yandex.practicum.entity.Order;
 import ru.yandex.practicum.entity.OrderItem;
 import ru.yandex.practicum.exception.NoOrderFoundException;
 import ru.yandex.practicum.exception.NotAuthorizedUserException;
+import ru.yandex.practicum.exception.NotEnoughInfoInOrderToCalculateException;
 import ru.yandex.practicum.repository.OrderItemRepository;
 import ru.yandex.practicum.repository.OrderRepository;
 
@@ -116,6 +117,7 @@ public class OrderService {
                 .map(order -> toDto(order, itemsByOrder))
                 .toList();
     }
+
 
     @Transactional
     public OrderDto returnOrder(ProductReturnRequest request) {
@@ -255,90 +257,72 @@ public class OrderService {
         return toDto(order, itemsByOrder);
     }
 
-    @Transactional(readOnly = true)
+    //
+    @Transactional
     public OrderDto calculateTotal(UUID orderId) {
+        // 1. Нашли заказ
         Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> {
-                    log.warn("Заказ не найден: orderId={}", orderId);
-                    throw new NoOrderFoundException("Заказ не найден: " + orderId, 400);
-                });
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден", 400));
 
+        // 2. ПРОВЕРКА: Доставка должна быть уже посчитана и лежать в БД!
+        if (order.getDeliveryPrice() == null || order.getDeliveryPrice() <= 0) {
+            throw new NotEnoughInfoInOrderToCalculateException(
+                    "Сначала рассчитайте доставку через /api/v1/order/calculate/delivery", 400
+            );
+        }
+
+        // 3. Собираем товары для запроса
         List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
         Map<UUID, Long> productsMap = items.stream()
                 .filter(i -> i.getQuantity() > 0)
-                .collect(Collectors.toMap(
-                        OrderItem::getProductId,
-                        item -> item.getQuantity()
-                ));
+                .collect(Collectors.toMap(OrderItem::getProductId, OrderItem::getQuantity));
 
-        OrderDto orderDtoForCalculation = OrderDto.builder()
+        // 4. Формируем DTO для отправки в сервис оплаты
+        // ВАЖНО: мы передаём туда deliveryPrice, которую УЖЕ сохранили в БД на прошлом шаге
+        OrderDto requestDto = OrderDto.builder()
                 .orderId(order.getId())
                 .shoppingCartId(order.getShoppingCartId())
                 .products(productsMap)
                 .deliveryWeight(order.getDeliveryWeight())
                 .deliveryVolume(order.getDeliveryVolume())
                 .fragile(order.getFragile())
+                // 👇 Вот это самое важное: берём из БД и кладём в запрос
+                .deliveryPrice(order.getDeliveryPrice())
                 .build();
 
-        try {
-            var totalCostResponse = paymentServiceApi.calculateTotalCost(orderDtoForCalculation);
-            if (!totalCostResponse.getStatusCode().is2xxSuccessful()) {
-                log.error("Сервис payment вернул ошибку при расчёте полной стоимости: {}", totalCostResponse.getStatusCodeValue());
-                throw new IllegalStateException("Не удалось рассчитать полную стоимость заказа");
-            }
+        // 5. Стучимся в сервис оплаты. Он вернёт нам итоговую сумму (Товары + НДС + Доставка)
+        ResponseEntity<Double> response = paymentServiceApi.calculateTotalCost(requestDto);
 
-            Double totalPriceDouble = totalCostResponse.getBody();
-            if (totalPriceDouble == null) {
-                throw new IllegalArgumentException("Пустой ответ от сервиса оплаты");
-            }
-            long totalPrice = totalPriceDouble.longValue();
-
-            Double deliveryPriceDouble = getDeliveryPriceFromServiceOrFallback(order);
-            long deliveryPrice = deliveryPriceDouble.longValue();
-            long productPrice = Math.max(0, totalPrice - deliveryPrice);
-
-            log.info("Полная стоимость заказа {} рассчитана: total={}, delivery={}, product={}",
-                    orderId, totalPrice, deliveryPrice, productPrice);
-
-            return OrderDto.builder()
-                    .orderId(order.getId())
-                    .shoppingCartId(order.getShoppingCartId())
-                    .products(productsMap)
-                    .paymentId(order.getPaymentId())
-                    .deliveryId(order.getDeliveryId())
-                    .state(order.getState())
-                    .deliveryWeight(order.getDeliveryWeight())
-                    .deliveryVolume(order.getDeliveryVolume())
-                    .fragile(order.getFragile())
-                    .totalPrice(totalPrice)
-                    .deliveryPrice(deliveryPrice)
-                    .productPrice(productPrice)
-                    .build();
-
-        } catch (IllegalArgumentException e) {
-            log.warn("Не удалось получить полную стоимость от payment, возвращаем текущие цены из БД. Причина: {}", e.toString());
-            Map<UUID, Long> currentProducts = items.stream()
-                    .filter(i -> i.getQuantity() > 0)
-                    .collect(Collectors.toMap(
-                            OrderItem::getProductId,
-                            item -> item.getQuantity()
-                    ));
-
-            return OrderDto.builder()
-                    .orderId(order.getId())
-                    .shoppingCartId(order.getShoppingCartId())
-                    .products(currentProducts)
-                    .paymentId(order.getPaymentId())
-                    .deliveryId(order.getDeliveryId())
-                    .state(order.getState())
-                    .deliveryWeight(order.getDeliveryWeight())
-                    .deliveryVolume(order.getDeliveryVolume())
-                    .fragile(order.getFragile())
-                    .totalPrice(order.getTotalPrice())
-                    .deliveryPrice(order.getDeliveryPrice())
-                    .productPrice(order.getProductPrice())
-                    .build();
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new IllegalStateException("Сервис оплаты не смог рассчитать сумму");
         }
+
+        Double totalAmount = response.getBody();
+        if (totalAmount == null) {
+            throw new IllegalArgumentException("Пустой ответ от сервиса оплаты");
+        }
+
+        // 6. ЗАПОЛНЯЕМ ПОЛЯ ЗАКАЗА (то, о чём ты спрашивал)
+
+        // totalPrice = то, что вернул сервис оплаты (округляем до Long, так как у тебя тип Long)
+        order.setTotalPrice(Math.round(totalAmount));
+
+        // 7. Сохраняем в БД
+        orderRepository.save(order);
+
+        // 8. Возвращаем DTO с готовыми цифрами
+        return OrderDto.builder()
+                .orderId(order.getId())
+                .shoppingCartId(order.getShoppingCartId())
+                .products(productsMap)
+                .state(order.getState())
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                .totalPrice(order.getTotalPrice())
+                .deliveryPrice(order.getDeliveryPrice())
+                .productPrice(order.getProductPrice())
+                .build();
     }
 
     private OrderDto toDto(Order order, Map<UUID, List<OrderItem>> itemsByOrder) {

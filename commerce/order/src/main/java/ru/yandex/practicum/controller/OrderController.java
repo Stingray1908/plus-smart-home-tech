@@ -21,6 +21,7 @@ public class OrderController implements OrderServiceApi {
 
     private final OrderService orderService;
 
+    //
     @Override
     public ResponseEntity<OrderDto> createNewOrder(@RequestBody CreateNewOrderRequest request) {
         log.debug("Получен запрос на создание заказа, shoppingCartId={}",
@@ -30,6 +31,7 @@ public class OrderController implements OrderServiceApi {
         return ResponseEntity.ok(result);
     }
 
+    //
     @GetMapping
     public ResponseEntity<List<OrderDto>> getOrders(
             @RequestParam(name = "username") String username,
@@ -41,6 +43,7 @@ public class OrderController implements OrderServiceApi {
         return ResponseEntity.ok(orders);
     }
 
+    //
     @Override
     public ResponseEntity<OrderDto> returnOrder(@RequestBody ProductReturnRequest request) {
         OrderDto dto = orderService.returnOrder(request);
@@ -77,23 +80,28 @@ public class OrderController implements OrderServiceApi {
         return ResponseEntity.ok(dto);
     }
 
+
+    //
     @Override
     public ResponseEntity<OrderDto> handleCalculateTotal(@RequestBody UUID orderId) {
         var dto = orderService.calculateTotal(orderId);
         return ResponseEntity.ok(dto);
     }
 
+    //
     @Override
     public ResponseEntity<OrderDto> handleCalculateDelivery(@RequestBody UUID orderId) {
         var dto = orderService.calculateDelivery(orderId);
         return ResponseEntity.ok(dto);
     }
+
 //
     @Override
     public ResponseEntity<OrderDto> handleAssembly(@RequestBody UUID orderId) {
         var dto = orderService.markAssembled(orderId);
         return ResponseEntity.ok(dto);
     }
+
 //
     @Override
     public ResponseEntity<OrderDto> handleAssemblyFailed(@RequestBody UUID orderId) {

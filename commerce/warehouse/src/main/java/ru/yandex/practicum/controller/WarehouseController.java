@@ -18,24 +18,28 @@ public class WarehouseController implements WarehouseServiceApi {
 
     private final WarehouseService warehouseService;
 
+    //
     @Override
     public ResponseEntity<BookedProductsDto> check(@RequestBody ShoppingCartDto cart) {
         BookedProductsDto result = warehouseService.checkCart(cart);
         return ResponseEntity.ok(result);
     }
 
+    //
     @PutMapping
     public ResponseEntity<Void> addProduct(@RequestBody NewProductInWarehouseRequest request) {
         warehouseService.addProductToWarehouse(request);
         return ResponseEntity.ok().build();
     }
 
+    //
     @Override
     public ResponseEntity<AddressDto> getAddress() {
         AddressDto address = warehouseService.getWarehouseAddress();
         return ResponseEntity.ok(address);
     }
 
+    //
     @Override
     public ResponseEntity<Void> addQuantity(@RequestBody AddProductToWarehouseRequest request) {
         warehouseService.addQuantityToWarehouse(request.getProductId(), request.getQuantity());
@@ -53,12 +57,14 @@ public class WarehouseController implements WarehouseServiceApi {
         return ResponseEntity.ok(warehouseService.assembleOrder(request));
     }
 
+    
     @Override
     public ResponseEntity<Void> markOrderShipped(@RequestBody ShippedToDeliveryRequest request) {
         warehouseService.markOrderAsShipped(request.getOrderId(), request.getDeliveryId());
         return ResponseEntity.ok().build();
     }
 
+    //
     @Override
     public ResponseEntity<Void> returnProducts(@RequestBody Map<UUID, Long> products) {
         if (products == null || products.isEmpty()) {

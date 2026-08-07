@@ -58,7 +58,7 @@ public class PaymentController {
      * Логика: найти платёж -> поставить статус SUCCESS -> вызвать сервис заказов.
      */
 
-    
+
     @PostMapping("/refund")
     public ResponseEntity<PaymentDto> simulateSuccessPayment(@RequestBody UUID paymentId) {
         PaymentDto dto = paymentService.markPaymentSuccess(paymentId);
