@@ -1,5 +1,6 @@
 package ru.yandex.practicum.service;
 
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -199,39 +200,60 @@ public class OrderService {
         return toDto(order, itemsByOrder);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public OrderDto calculateDelivery(UUID orderId) {
+        log.debug("Начало расчёта доставки для заказа: {}", orderId);
+
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> {
                     log.warn("Заказ не найден: orderId={}", orderId);
-                    throw new NoOrderFoundException("Заказ не найден: " + orderId, 404);
+                    throw new NoOrderFoundException("Заказ не найден", 404);
                 });
 
-        Double deliveryPriceDouble = getDeliveryPriceFromServiceOrFallback(order);
-        long deliveryPrice = deliveryPriceDouble.longValue();
+        if (order.getDeliveryWeight() == null && order.getDeliveryVolume() == null) {
+            throw new IllegalArgumentException("Недостаточно данных для расчёта доставки (вес/объём)");
+        }
 
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, Long> productsMap = items.stream()
-                .filter(i -> i.getQuantity() > 0)
-                .collect(Collectors.toMap(
-                        OrderItem::getProductId,
-                        item -> item.getQuantity()
-                ));
-
-        return OrderDto.builder()
+        // Готовим DTO только с данными, нужными для расчёта доставки
+        OrderDto requestDto = OrderDto.builder()
                 .orderId(order.getId())
-                .shoppingCartId(order.getShoppingCartId())
-                .products(productsMap)
-                .paymentId(order.getPaymentId())
-                .deliveryId(order.getDeliveryId())
-                .state(order.getState())
                 .deliveryWeight(order.getDeliveryWeight())
                 .deliveryVolume(order.getDeliveryVolume())
                 .fragile(order.getFragile())
-                .totalPrice(deliveryPrice)
-                .deliveryPrice(deliveryPrice)
-                .productPrice(0L)
                 .build();
+
+        log.info("Вызов сервиса доставки для заказа {}", orderId);
+        ResponseEntity<Double> response;
+        try {
+            response = deliveryServiceApi.calculateDeliveryCost(requestDto);
+        } catch (FeignException e) {
+            log.error("Сервис доставки недоступен. Заказ: {}. Ошибка: {}", orderId, e.getMessage());
+            throw new IllegalStateException(
+                    "Сервис доставки (delivery) временно недоступен"
+            );
+        }
+
+        if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+            throw new IllegalStateException(
+                    "Не удалось рассчитать доставку: сервис вернул статус " + response.getStatusCode()
+            );
+        }
+
+        long deliveryPrice = Math.round(response.getBody());
+        log.info("Стоимость доставки для заказа {}: {}", orderId, deliveryPrice);
+
+        // Обновляем только deliveryPrice
+        order.setDeliveryPrice(deliveryPrice);
+        // totalPrice и productPrice НЕ трогаем: они считаются в других местах/методах
+        orderRepository.save(order);
+
+        // Собираем itemsByOrder для toDto
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> order.getId()));
+
+        // Используем имеющийся toDto — он возьмёт актуальные deliveryPrice из order
+        return toDto(order, itemsByOrder);
     }
 
     @Transactional(readOnly = true)
