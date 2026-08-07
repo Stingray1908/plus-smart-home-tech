@@ -21,6 +21,7 @@ import ru.yandex.practicum.exception.NotAuthorizedUserException;
 import ru.yandex.practicum.repository.OrderItemRepository;
 import ru.yandex.practicum.repository.OrderRepository;
 
+import javax.naming.ServiceUnavailableException;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -196,16 +197,6 @@ public class OrderService {
                 .collect(Collectors.groupingBy(i -> order.getId()));
 
         return toDto(order, itemsByOrder);
-    }
-
-
-    private void sendReturnToWarehouse(Map<UUID, Long> returns) {
-        for (var entry : returns.entrySet()) {
-            warehouseServiceApi.addQuantity(AddProductToWarehouseRequest.builder()
-                    .productId(entry.getKey())
-                    .quantity(entry.getValue())
-                    .build());
-        }
     }
 
     @Transactional(readOnly = true)
@@ -417,12 +408,124 @@ public class OrderService {
         return markOrderStatus(orderId, OrderStatus.DELIVERY_FAILED, "Доставка заказа {} завершилась ошибкой, статус установлен: DELIVERY_FAILED");
     }
 
+    //проверен
     public OrderDto markAssembled(UUID orderId) {
-        return markOrderStatus(orderId, OrderStatus.ASSEMBLED, "Заказ {} собран, статус установлен: ASSEMBLED");
+        // 1. Находим заказ
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Заказ не найден: " + orderId));
+
+        // 2. Проверка статуса: собирать можно только NEW
+        if (!order.getState().equals(OrderStatus.NEW)) {
+            throw new IllegalStateException(
+                    "Нельзя собирать заказ со статусом: " + order.getState()
+            );
+        }
+
+        // 3. Достаём позиции заказа
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        if (items.isEmpty()) {
+            throw new IllegalStateException("В заказе нет товаров");
+        }
+
+        // 4. Превращаем в Map<productId, quantity> для запроса на склад
+        Map<UUID, Long> productsMap = items.stream()
+                .collect(Collectors.toMap(
+                        OrderItem::getProductId,
+                        OrderItem::getQuantity
+                ));
+
+        AssemblyProductsForOrderRequest request = new AssemblyProductsForOrderRequest(orderId, productsMap);
+
+        // 5. Отправляем на склад для бронирования
+        ResponseEntity<BookedProductsDto> response = warehouseServiceApi.assembleOrder(request);
+        BookedProductsDto booked = response.getBody();
+        if (booked == null) {
+            throw new IllegalStateException("Склад не вернул данные о бронировании");
+        }
+
+        // 6. Обновляем параметры заказа данными от склада
+        order.setDeliveryWeight(booked.getDeliveryWeight());
+        order.setDeliveryVolume(booked.getDeliveryVolume());
+        order.setFragile(booked.isFragile());
+
+        // 7. Меняем статус ТОЛЬКО после успешного ответа от склада
+        order.setState(OrderStatus.ASSEMBLED);
+
+        orderRepository.save(order);
+
+        log.info("Заказ {} собран: вес={}, объём={}, хрупкий={}",
+                order.getId(), order.getDeliveryWeight(), order.getDeliveryVolume(), order.getFragile());
+
+        // Формируем DTO (items у нас уже есть из шага 3)
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> order.getId()));
+
+        return toDto(order, itemsByOrder);
     }
 
+    /**
+     * Обрабатывает ошибку сборки заказа.
+     *
+     * Логика:
+     * 1. Если статус NEW — просто меняем на ASSEMBLY_FAILED (брони не было).
+     * 2. Если статус ASSEMBLED — вызываем returnProducts на складе для возврата остатков.
+     *    ⚠️ ВАЖНО: В текущем ТЗ нет метода для удаления записей OrderBooking на стороне склада.
+     *    Поэтому бронь остаётся в БД склада, а обновляются только остатки (quantity).
+     *    Это допустимо только для учебного спринта. В продакшене требуется отдельный эндпоинт
+     *    для очистки брони по orderId.
+     */
+    //проверен
     public OrderDto markAssemblyFailed(UUID orderId) {
-        return markOrderStatus(orderId, OrderStatus.ASSEMBLY_FAILED, "Сборка заказа {} завершилась ошибкой, статус установлен: ASSEMBLY_FAILED");
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Заказ не найден: " + orderId));
+
+        if (!order.getState().equals(OrderStatus.NEW) && !order.getState().equals(OrderStatus.ASSEMBLED)) {
+            throw new IllegalStateException(
+                    "Недопустимый статус для отмены сборки: текущий статус = " + order.getState()
+            );
+        }
+
+        if (order.getState().equals(OrderStatus.NEW)) {
+            order.setState(OrderStatus.ASSEMBLY_FAILED);
+            orderRepository.save(order);
+            log.info("Заказ {} переведён в ASSEMBLY_FAILED (статус был NEW, брони не было)", orderId);
+            return toDto(order, Map.of());
+        }
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+
+        if (!items.isEmpty()) {
+            Map<UUID, Long> productsToReturn = items.stream()
+                    .collect(Collectors.toMap(
+                            OrderItem::getProductId,
+                            OrderItem::getQuantity,
+                            (existing, replacement) -> existing // защита от дублей
+                    ));
+
+            try {
+                // Вызываем существующий метод склада для возврата остатков
+                warehouseServiceApi.returnProducts(productsToReturn);
+                log.info("Остатки товаров для заказа {} возвращены на склад", orderId);
+            } catch (Exception e) {
+                log.error("Не удалось вернуть товары на склад для заказа {}. Статус не изменён.", orderId, e);
+                throw new IllegalStateException(
+                        "Склад недоступен, невозможно откатить бронь товаров");
+            }
+        } else {
+            log.warn("В заказе {} нет позиций, хотя статус ASSEMBLED", orderId);
+        }
+
+
+        order.setState(OrderStatus.ASSEMBLY_FAILED);
+        order.setDeliveryWeight(0.0);
+        order.setDeliveryVolume(0.0);
+        order.setFragile(false);
+
+        orderRepository.save(order);
+        log.info("Сборка заказа {} отменена, статус: ASSEMBLY_FAILED", order.getId());
+
+        return toDto(order, items.stream()
+                .collect(Collectors.groupingBy(i -> order.getId())));
     }
 
     public OrderDto markCompleted(UUID orderId) {

@@ -32,12 +32,14 @@ public class WarehouseService {
         this.orderBookingRepository = orderBookingRepository;
     }
 
+    //проверен
     public BookedProductsDto checkCart(ShoppingCartDto cart) {
         Map<UUID, Long> products = cart.getProducts();
         // Используем только проверку, ничего не сохраняем
         return validateAndCalculate(products).dto;
     }
 
+    //проверен
     @Transactional
     public BookedProductsDto assembleOrder(AssemblyProductsForOrderRequest request) {
         if (request.getOrderId() == null) {
