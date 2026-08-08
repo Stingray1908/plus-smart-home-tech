@@ -20,7 +20,6 @@ import java.util.UUID;
 public class Delivery {
 
     @Id
-    // Hibernate сам возьмет UUID из БД (PostgreSQL uuid_generate_v4 или аналог)
     @GeneratedValue(generator = "UUID")
     @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
     private UUID id;
@@ -28,7 +27,6 @@ public class Delivery {
     @Column(name = "order_id", nullable = false)
     private UUID orderId;
 
-    // --- Адреса ---
     @Column(name = "from_country")
     private String fromCountry;
     @Column(name = "from_city")
@@ -51,7 +49,6 @@ public class Delivery {
     @Column(name = "to_flat")
     private String toFlat;
 
-    // --- Параметры груза (заполняются позже) ---
     @Column(name = "total_weight")
     private Double totalWeight;
 
@@ -72,7 +69,6 @@ public class Delivery {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
-        // Если state не задан, ставим CREATED (на случай если кто-то создаст через new Delivery())
         if (this.deliveryState == null) {
             this.deliveryState = DeliveryState.CREATED;
         }

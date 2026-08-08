@@ -27,19 +27,17 @@ public class WarehouseService {
     private final WarehouseStockRepository warehouseStockRepository;
     private final OrderBookingRepository orderBookingRepository;
 
-    public WarehouseService(WarehouseStockRepository warehouseStockRepository, OrderBookingRepository orderBookingRepository) {
+    public WarehouseService(WarehouseStockRepository warehouseStockRepository,
+                            OrderBookingRepository orderBookingRepository) {
         this.warehouseStockRepository = warehouseStockRepository;
         this.orderBookingRepository = orderBookingRepository;
     }
 
-    //проверен
     public BookedProductsDto checkCart(ShoppingCartDto cart) {
         Map<UUID, Long> products = cart.getProducts();
-        // Используем только проверку, ничего не сохраняем
         return validateAndCalculate(products).dto;
     }
 
-    //проверен
     @Transactional
     public BookedProductsDto assembleOrder(AssemblyProductsForOrderRequest request) {
         if (request.getOrderId() == null) {
@@ -52,7 +50,6 @@ public class WarehouseService {
         UUID orderId = request.getOrderId();
         Map<UUID, Long> requiredQuantities = request.getProducts();
 
-        // Один запрос к БД, проверка и получение сущностей
         ValidationResult result = validateAndCalculate(requiredQuantities);
         Map<UUID, WarehouseStock> stockMap = result.stockMap;
 
@@ -63,7 +60,6 @@ public class WarehouseService {
             UUID productId = entry.getKey();
             Long requiredQty = entry.getValue();
 
-            // Работаем с теми же сущностями, что были загружены в validateAndCalculate
             WarehouseStock stock = stockMap.get(productId);
             long newQuantity = stock.getQuantity() - requiredQty;
             stock.setQuantity(newQuantity);
@@ -84,7 +80,6 @@ public class WarehouseService {
 
         return result.dto;
     }
-
 
     @Transactional
     public void addProductToWarehouse(NewProductInWarehouseRequest request) {
@@ -124,12 +119,9 @@ public class WarehouseService {
             throw new IllegalArgumentException("orderId и deliveryId обязательны");
         }
 
-        // Находим все брони по заказу
         List<OrderBooking> bookings = orderBookingRepository.findByOrderId(orderId);
 
         if (bookings.isEmpty()) {
-            // Если брони нет, значит заказ не собирали — можно либо вернуть ошибку, либо ничего не делать.
-            // Для учебной задачи логично кинуть ошибку, чтобы не «проглатывать» странные запросы.
             throw new ProductInShoppingCartLowQuantityInWarehouse(
                     "Нет бронированных товаров для заказа: " + orderId,
                     "Для заказа не найдена бронь товаров на складе",
@@ -140,7 +132,6 @@ public class WarehouseService {
 
         for (OrderBooking booking : bookings) {
             booking.setDeliveryId(deliveryId);
-            // save можно вызывать в цикле: всё равно всё в одной транзакции
             orderBookingRepository.save(booking);
         }
     }
@@ -173,11 +164,6 @@ public class WarehouseService {
         warehouseStockRepository.save(stock);
     }
 
-    /**
-     * Обрабатывает возврат: увеличивает остатки по каждому productId на указанное количество.
-     *
-     * @param products productId -> quantity
-     */
     @Transactional
     public void returnProducts(Map<UUID, Long> products) {
         if (products == null || products.isEmpty()) {
@@ -212,7 +198,6 @@ public class WarehouseService {
         }
 
         List<UUID> productIds = new ArrayList<>(products.keySet());
-        // ОДИН запрос к БД
         List<WarehouseStock> stocks = warehouseStockRepository.findByProductIdIn(productIds);
         Map<UUID, WarehouseStock> stockMap = stocks.stream()
                 .collect(Collectors.toMap(WarehouseStock::getProductId, s -> s));
@@ -270,5 +255,4 @@ public class WarehouseService {
             this.stockMap = stockMap;
         }
     }
-
 }
