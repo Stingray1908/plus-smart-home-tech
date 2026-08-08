@@ -13,7 +13,6 @@ import ru.yandex.practicum.exception.NotEnoughInfoInOrderToCalculateException;
 import ru.yandex.practicum.repository.DeliveryRepository;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -28,14 +27,11 @@ public class DeliveryService {
 
     public DeliveryDto saveDelivery(DeliveryDto dto) {
         UUID orderId = dto.getOrderId();
-
         if (orderId == null) {
             throw new IllegalArgumentException("orderId обязателен");
         }
 
         Delivery entity;
-
-        // Логика: если ID есть -> обновляем, если нет -> создаем (ID сгенерирует БД)
         if (dto.getDeliveryId() != null) {
             entity = deliveryRepository.findById(dto.getDeliveryId())
                     .orElseThrow(() -> new IllegalArgumentException("Доставка не найдена: " + dto.getDeliveryId()));
@@ -47,7 +43,6 @@ public class DeliveryService {
 
         fillAddress(entity, dto.getFromAddress(), true);
         fillAddress(entity, dto.getToAddress(), false);
-
         entity.setOrderId(orderId);
 
         if (dto.getDeliveryState() != null) {
@@ -55,7 +50,6 @@ public class DeliveryService {
         }
 
         Delivery saved = deliveryRepository.save(entity);
-
         log.info("Доставка сохранена. ID: {}, Заказ: {}", saved.getId(), saved.getOrderId());
 
         return toDto(saved);
@@ -72,28 +66,20 @@ public class DeliveryService {
         }
 
         Delivery delivery = deliveries.getFirst();
-
-        // Защита от бессмысленных повторных переводов (опционально)
         if (delivery.getDeliveryState() == DeliveryState.DELIVERED) {
             log.warn("Попытка повторно установить DELIVERED для доставки ID={}", delivery.getId());
-            // Можно сразу вернуть DTO без изменений и без вызова order-service,
-            // потому что статус заказа тоже уже должен быть DELIVERED.
             return toDto(delivery);
         }
 
-        // 1. Меняем статус доставки
         delivery.setDeliveryState(DeliveryState.DELIVERED);
         delivery = deliveryRepository.save(delivery);
         log.info("Доставка заказа {} переведена в DELIVERED", orderId);
 
-        // 2. Синхронизируем статус заказа в order-service
         try {
             orderServiceApi.handleDelivery(orderId);
             log.info("Статус заказа {} успешно обновлён в order-service: DELIVERED", orderId);
         } catch (FeignException e) {
             log.error("Не удалось обновить статус заказа в order-service для orderId={}", orderId, e);
-            // Здесь можно решить: откатывать доставку или нет.
-            // Для учебной задачи чаще всего пробрасывают ошибку дальше.
             throw e;
         }
 
@@ -110,19 +96,16 @@ public class DeliveryService {
             throw new NoDeliveryFoundException("Доставка для заказа не найдена: " + orderId, 404);
         }
 
-        Delivery delivery = deliveries.get(0);
-
+        Delivery delivery = deliveries.getFirst();
         if (delivery.getDeliveryState() == DeliveryState.FAILED) {
             log.info("Доставка заказа {} уже в статусе FAILED", orderId);
             return toDto(delivery);
         }
 
-        // Меняем статус доставки на FAILED
         delivery.setDeliveryState(DeliveryState.FAILED);
         delivery = deliveryRepository.save(delivery);
         log.info("Доставка заказа {} переведена в FAILED", orderId);
 
-        // Синхронизируем статус заказа в order-service
         try {
             orderServiceApi.handleDeliveryFailed(orderId);
             log.info("Статус заказа {} успешно обновлён в order-service: DELIVERY_FAILED", orderId);
@@ -145,9 +128,8 @@ public class DeliveryService {
         }
 
         Delivery delivery = deliveries.getFirst();
-
-        // Если уже финальный статус — не меняем доставку, но по ТЗ всё равно должны пройти остальные шаги
         boolean deliveryUpdated = false;
+
         if (!(delivery.getDeliveryState() == DeliveryState.DELIVERED
                 || delivery.getDeliveryState() == DeliveryState.CANCELLED
                 || delivery.getDeliveryState() == DeliveryState.FAILED)) {
@@ -160,47 +142,32 @@ public class DeliveryService {
                     delivery.getDeliveryState());
         }
 
-        // 1. Переводим заказ в ASSEMBLED
         try {
             orderServiceApi.handleAssembly(orderId);
             log.info("Заказ {} успешно переведён в статус ASSEMBLED", orderId);
         } catch (FeignException e) {
-            // Если заказ не удалось перевести в ASSEMBLED — по ТЗ дальше идти нельзя:
-            // мы не должны связывать доставку со складом, если заказ не собран.
             log.error("Не удалось обновить статус заказа в order-service для orderId={}", orderId, e);
-            if (deliveryUpdated) {
-                // Опционально: можно попробовать откатить статус доставки, если это уместно.
-                // В учебном проекте чаще просто пробрасывают ошибку, без ручного отката.
-            }
             throw e;
         }
 
-        // 2. Связываем доставку со складом (shippedToDelivery)
         ShippedToDeliveryRequest request = new ShippedToDeliveryRequest(orderId, delivery.getId());
         try {
             warehouseServiceApi.markOrderShipped(request);
             log.info("Заказ {} и доставка {} связаны на складе", orderId, delivery.getId());
         } catch (FeignException e) {
             log.error("Не удалось связать заказ {} с доставкой {} на складе", orderId, delivery.getId(), e);
-            // Здесь тоже вопрос бизнес‑логики: если склад не принял — можно ли считать доставку принятой?
-            // В учебной задаче обычно пробрасывают ошибку дальше.
             throw e;
         }
 
         return toDto(delivery);
     }
 
-
-
-    //
     public Double calculateCost(OrderDto orderDto) {
         if (orderDto.getOrderId() == null) {
             throw new IllegalArgumentException("orderId обязателен для расчёта стоимости");
         }
 
-        // 1. Находим доставку по заказу
         List<Delivery> deliveries = deliveryRepository.findByOrderId(orderDto.getOrderId());
-
         if (deliveries == null || deliveries.isEmpty()) {
             log.warn("Не найдена доставка для заказа {}", orderDto.getOrderId());
             throw new NotEnoughInfoInOrderToCalculateException(
@@ -210,16 +177,13 @@ public class DeliveryService {
             );
         }
 
-        // Защита: если доставок больше одной
         if (deliveries.size() > 1) {
             String deliveryIds = deliveries.stream()
                     .map(Delivery::getId)
                     .map(UUID::toString)
                     .collect(Collectors.joining(", "));
-
             log.error("Обнаружено {} доставок для заказа {}: {}. Ожидается ровно одна.",
                     deliveries.size(), orderDto.getOrderId(), deliveryIds);
-
             throw new IllegalStateException(
                     "Для заказа " + orderDto.getOrderId() + " найдено более одной доставки: " + deliveryIds
             );
@@ -228,9 +192,9 @@ public class DeliveryService {
         Delivery delivery = deliveries.getFirst();
         log.debug("Найдена доставка ID: {} для заказа ID: {}", delivery.getId(), orderDto.getOrderId());
 
-        String warehouseLocation = delivery.getFromCity(); // Сюда при создании положили "ADDRESS_1" или "ADDRESS_2"
-        String fromStreet = delivery.getFromStreet();     // Улица склада
-        String toStreet = delivery.getToStreet();         // Улица клиента
+        String warehouseLocation = delivery.getFromCity();
+        String fromStreet = delivery.getFromStreet();
+        String toStreet = delivery.getToStreet();
 
         if (warehouseLocation == null) {
             log.error("В доставке ID={} не указан адрес склада (fromCity). Невозможно рассчитать стоимость.", delivery.getId());
@@ -241,57 +205,47 @@ public class DeliveryService {
         boolean isAddress2 = "ADDRESS_2".equals(warehouseLocation);
 
         if (!isAddress1 && !isAddress2) {
-            // Если там что-то другое (опечатка при создании), кидаем понятную ошибку
             throw new IllegalArgumentException(
                     "Неизвестный адрес склада в записи доставки: '" + warehouseLocation +
                             "'. Ожидалось ADDRESS_1 или ADDRESS_2. Проверьте данные доставки."
             );
         }
 
-        // 2. Базовая ставка
         double baseRate = 5.0;
         double currentSum = baseRate;
 
-        // 3. Коэффициент склада
         double warehouseMultiplier = isAddress1 ? 1.0 : 2.0;
-        currentSum = currentSum + (baseRate * warehouseMultiplier);
+        currentSum += baseRate * warehouseMultiplier;
         log.debug("Коэффициент склада ({}): множитель {}, итог {}", warehouseLocation, warehouseMultiplier, currentSum);
 
-        // 4. Хрупкость (берём из DTO заказа, так как это свойство груза)
         boolean isFragile = Boolean.TRUE.equals(orderDto.getFragile());
         if (isFragile) {
-            currentSum = currentSum + (currentSum * 0.2);
+            currentSum += currentSum * 0.2;
         }
         log.debug("Учёт хрупкости ({}): итог {}", isFragile, currentSum);
 
-        // 5. Вес (из DTO заказа)
         double weight = (orderDto.getDeliveryWeight() != null) ? orderDto.getDeliveryWeight() : 0.0;
-        currentSum = currentSum + (weight * 0.3);
+        currentSum += weight * 0.3;
         log.debug("Учёт веса ({} кг): итог {}", weight, currentSum);
 
-        // 6. Объём (из DTO заказа)
         double volume = (orderDto.getDeliveryVolume() != null) ? orderDto.getDeliveryVolume() : 0.0;
-        currentSum = currentSum + (volume * 0.2);
+        currentSum += volume * 0.2;
         log.debug("Учёт объёма ({} м³): итог {}", volume, currentSum);
 
-        // 7. Сравнение улиц (СКЛАД vs КЛИЕНТ)
-        // Теперь мы сравниваем delivery.getFromStreet() и delivery.getToStreet()
         if (fromStreet != null && toStreet != null) {
             if (!fromStreet.equalsIgnoreCase(toStreet)) {
                 log.debug("Улицы разные (Склад: {}, Клиент: {}). Добавляем коэффициент.", fromStreet, toStreet);
-                currentSum = currentSum + (currentSum * 0.2);
+                currentSum += currentSum * 0.2;
             } else {
                 log.debug("Улицы совпадают ({}). Коэффициент не применяется.", fromStreet);
             }
         } else {
-            // Если улицы не заполнены, считаем доставку дальней (по умолчанию, как в ТЗ)
             log.warn("Одна из улиц не заполнена (Склад: '{}', Клиент: '{}'). Применяем коэффициент за дальнюю доставку.",
                     fromStreet, toStreet);
-            currentSum = currentSum + (currentSum * 0.2);
+            currentSum += currentSum * 0.2;
         }
 
         double finalCost = Math.round(currentSum * 100.0) / 100.0;
-
         log.info("Расчёт стоимости доставки для заказа {} завершён. Итоговая стоимость: {}", orderDto.getOrderId(), finalCost);
         return finalCost;
     }
