@@ -17,14 +17,10 @@ import ru.yandex.practicum.api.WarehouseServiceApi;
 import ru.yandex.practicum.dto.*;
 import ru.yandex.practicum.entity.Order;
 import ru.yandex.practicum.entity.OrderItem;
-import ru.yandex.practicum.exception.NoOrderFoundException;
-import ru.yandex.practicum.exception.NotAuthorizedUserException;
-import ru.yandex.practicum.exception.NotEnoughInfoInOrderToCalculateException;
+import ru.yandex.practicum.exception.*;
 import ru.yandex.practicum.repository.OrderItemRepository;
 import ru.yandex.practicum.repository.OrderRepository;
 
-import javax.naming.ServiceUnavailableException;
-import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -39,116 +35,35 @@ public class OrderService {
     private final CartServiceApi cartServiceApi;
     private final PaymentServiceApi paymentServiceApi;
     private final DeliveryServiceApi deliveryServiceApi;
-
-    // Этот сервис мы теперь используем только для смены статусов
     private final OrderStatusService statusService;
 
+    /**
+     * Оплата заказа: только если статус ASSEMBLED и все цены рассчитаны.
+     */
     @Transactional
     public OrderDto payOrder(UUID orderId) {
-        // 1. Находим заказ
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> {
-                    log.warn("Заказ не найден: orderId={}", orderId);
-                    throw new NoOrderFoundException("Заказ не найден: " + orderId, 400);
-                });
+        Order order = findOrderOrFail(orderId);
 
-        // 2. ПРОВЕРКА СТАТУСА: должен быть ASSEMBLED
-        if (order.getState() != OrderStatus.ASSEMBLED) {
-            log.warn("Нельзя оплатить заказ {}: статус={}, ожидается ASSEMBLED", orderId, order.getState());
-            throw new IllegalStateException(
-                    "Оплата возможна только для заказа со статусом ASSEMBLED. Текущий статус: " + order.getState()
-            );
-        }
-
-        // 3. ПРОВЕРКА ЦЕН: доставка и итог должны быть посчитаны
-        if (order.getDeliveryPrice() == null || order.getDeliveryPrice() <= 0) {
-            throw new NotEnoughInfoInOrderToCalculateException(
-                    "Сначала рассчитайте доставку через /api/v1/order/calculate/delivery", 400
-            );
-        }
-        if (order.getTotalPrice() == null || order.getTotalPrice() <= 0) {
-            throw new NotEnoughInfoInOrderToCalculateException(
-                    "Сначала рассчитайте полную стоимость через /api/v1/order/calculate/total", 400
-            );
-        }
+        validateOrderForPayment(order);
 
         log.info("Начинаем процесс оплаты для заказа {} (статус ASSEMBLED)", orderId);
 
-        // 4. Собираем товары
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, Long> productsMap = items.stream()
-                .filter(i -> i.getQuantity() > 0)
-                .collect(Collectors.toMap(OrderItem::getProductId, OrderItem::getQuantity));
+        Map<UUID, Long> productsMap = buildProductsMap(orderId);
 
-        // 5. Формируем DTO для отправки в сервис оплаты
-        OrderDto requestDto = OrderDto.builder()
-                .orderId(order.getId())
-                .shoppingCartId(order.getShoppingCartId())
-                .products(productsMap)
-                .deliveryId(order.getDeliveryId())
-                .paymentId(order.getPaymentId())
-                .state(order.getState())
-                .deliveryWeight(order.getDeliveryWeight())
-                .deliveryVolume(order.getDeliveryVolume())
-                .fragile(order.getFragile())
-                // Передаём уже посчитанные цены из БД (без пересчёта)
-                .totalPrice(order.getTotalPrice())
-                .deliveryPrice(order.getDeliveryPrice())
-                .productPrice(order.getProductPrice())
-                .build();
+        OrderDto requestDto = buildOrderDtoForPayment(order, productsMap);
 
-        try {
-            // 6. Вызываем сервис оплаты
-            ResponseEntity<PaymentDto> paymentResponse = paymentServiceApi.createPayment(requestDto);
+        ResponseEntity<PaymentDto> paymentResponse = paymentServiceApi.createPayment(requestDto);
+        handlePaymentResponse(paymentResponse, order);
 
-            if (!paymentResponse.getStatusCode().is2xxSuccessful()) {
-                log.error("Сервис оплаты вернул ошибку при создании платежа: {}", paymentResponse.getStatusCode());
-                throw new IllegalStateException("Не удалось создать платёж в сервисе оплаты");
-            }
-
-            PaymentDto paymentDto = paymentResponse.getBody();
-            if (paymentDto == null) {
-                throw new IllegalArgumentException("Пустой ответ от сервиса оплаты");
-            }
-
-            // 7. Сохраняем ID платежа в заказ
-            order.setPaymentId(paymentDto.getPaymentId());
-            // Можно поменять статус заказа на WAITING_FOR_PAYMENT, если у тебя есть такой статус
-            order.setState(OrderStatus.ON_PAYMENT);
-            orderRepository.save(order);
-
-            log.info("Платёж создан для заказа {}. PaymentId: {}", orderId, paymentDto.getPaymentId());
-
-            // 8. Возвращаем DTO
-            return OrderDto.builder()
-                    .orderId(order.getId())
-                    .shoppingCartId(order.getShoppingCartId())
-                    .products(productsMap)
-                    .paymentId(order.getPaymentId())
-                    .deliveryId(order.getDeliveryId())
-                    .state(order.getState())
-                    .deliveryWeight(order.getDeliveryWeight())
-                    .deliveryVolume(order.getDeliveryVolume())
-                    .fragile(order.getFragile())
-                    .totalPrice(order.getTotalPrice())
-                    .deliveryPrice(order.getDeliveryPrice())
-                    .productPrice(order.getProductPrice())
-                    .build();
-        } catch (NotEnoughInfoInOrderToCalculateException | NoOrderFoundException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Критическая ошибка при запуске оплаты заказа {}", orderId, e);
-            throw new IllegalStateException("Ошибка при запуске процесса оплаты", e);
-        }
+        return toDto(order, buildOrderItemsList(orderId));
     }
 
-    //проверен
+    /**
+     * Создание заказа: проверка наличия, создание доставки, расчёт доставки, запуск оплаты.
+     */
     @Transactional
     public OrderDto createOrder(CreateNewOrderRequest request) {
-        ShoppingCartDto cart = request.getShoppingCart();
-        if (cart == null || cart.getProducts().isEmpty()) {
-            throw new IllegalArgumentException("Корзина не может быть пустой");
-        }
+        ShoppingCartDto cart = validateCartNotEmpty(request.getShoppingCart());
 
         // 1. Проверка наличия на складе
         var checkResponse = warehouseServiceApi.check(cart);
@@ -156,6 +71,9 @@ public class OrderService {
             throw new IllegalStateException("Не удалось проверить наличие товаров на складе");
         }
         BookedProductsDto booked = checkResponse.getBody();
+        if (booked == null) {
+            throw new IllegalStateException("Склад не вернул данные о бронировании");
+        }
 
         double totalWeight = booked.getDeliveryWeight();
         double totalVolume = booked.getDeliveryVolume();
@@ -165,45 +83,35 @@ public class OrderService {
         AddressDto warehouseAddress = warehouseServiceApi.getAddress()
                 .getBody();
 
-        // Адрес доставки от пользователя
+        // 3. Адрес доставки
         AddressDto deliveryAddress = request.getDeliveryAddress();
         if (deliveryAddress == null) {
             throw new IllegalArgumentException("Адрес доставки обязателен для создания заказа");
         }
 
-        // 3. Создаём заказ (статус NEW)
+        // 4. Создаём заказ (статус NEW)
         Order order = Order.builder()
                 .shoppingCartId(cart.getShoppingCartId())
                 .state(OrderStatus.NEW)
                 .totalPrice(0d)
                 .productPrice(0d)
-                .deliveryPrice(0d) // пока 0, цена доставки будет позже
+                .deliveryPrice(0d)
                 .deliveryWeight(totalWeight)
                 .deliveryVolume(totalVolume)
                 .fragile(fragile)
                 .build();
-
         order = orderRepository.save(order);
 
-        // 4. Создаём позиции заказа
-        Order finalOrder = order;
-        List<OrderItem> items = cart.getProducts().entrySet().stream()
-                .map(entry -> OrderItem.builder()
-                        .order(finalOrder)
-                        .productId(entry.getKey())
-                        .quantity(entry.getValue())
-                        .priceAtMoment(0L)
-                        .build())
-                .toList();
+        // 5. Создаём позиции заказа
+        List<OrderItem> items = buildOrderItems(order, cart.getProducts());
+        orderItemRepository.saveAll(items);
 
-        double productPriceValue = calculateAndGetProductPrice(order, items);
+        double productPriceValue = calculateProductPrice(order, items);
         order.setProductPrice(productPriceValue);
         order.setTotalPrice(productPriceValue); // пока без доставки
         orderRepository.save(order);
 
-        orderItemRepository.saveAll(items);
-
-        // 5. Создаём доставку (получаем deliveryId)
+        // 6. Создаём доставку
         DeliveryDto deliveryDto = DeliveryDto.builder()
                 .fromAddress(warehouseAddress)
                 .toAddress(deliveryAddress)
@@ -216,7 +124,6 @@ public class OrderService {
             throw new IllegalStateException("Не удалось создать доставку в сервисе доставки");
         }
         deliveryDto = deliveryResponse.getBody();
-
         UUID deliveryId = deliveryDto.getDeliveryId();
         if (deliveryId == null) {
             throw new IllegalStateException("Сервис доставки не вернул deliveryId");
@@ -225,38 +132,15 @@ public class OrderService {
         order.setDeliveryId(deliveryId);
         orderRepository.save(order);
 
-        // ------------------------------------------------------------------
-        // 6. ОТДЕЛЬНЫЙ ЗАПРОС ЦЕНЫ ДОСТАВКИ (костыль, но в рамках ТЗ)
-        // Используем Feign-метод calculateDeliveryCost из DeliveryServiceApi
-        // ------------------------------------------------------------------
-
-        OrderDto deliveryCostRequest = OrderDto.builder()
-                .orderId(order.getId())
-                .deliveryWeight(order.getDeliveryWeight())
-                .deliveryVolume(order.getDeliveryVolume())
-                .fragile(order.getFragile())
-                .build();
-
-        ResponseEntity<Double> deliveryCostResponse = deliveryServiceApi.calculateDeliveryCost(deliveryCostRequest);
-        if (!deliveryCostResponse.getStatusCode().is2xxSuccessful() || deliveryCostResponse.getBody() == null) {
-            throw new IllegalStateException(
-                    "Не удалось рассчитать стоимость доставки: сервис вернул статус " + deliveryCostResponse.getStatusCode()
-            );
-        }
-        Double deliveryPriceValue = deliveryCostResponse.getBody();
+        // 7. Расчёт стоимости доставки
+        Double deliveryPriceValue = calculateDeliveryCost(order);
         double deliveryPriceLong = Math.round(deliveryPriceValue);
 
-        // Сохраняем цену доставки в заказ (чтобы она была в БД и для отладки)
         order.setDeliveryPrice(deliveryPriceLong);
         orderRepository.save(order);
 
-        // ------------------------------------------------------------------
-        // 7. ЗАПУСК ПРОЦЕССА ОПЛАТЫ
-        // Теперь передаём в payment-service уже известную цену доставки
-        // ------------------------------------------------------------------
-
+        // 8. Запуск процесса оплаты
         Map<UUID, Long> productsMap = cart.getProducts();
-
         OrderDto orderDtoForPayment = OrderDto.builder()
                 .orderId(order.getId())
                 .shoppingCartId(order.getShoppingCartId())
@@ -264,16 +148,14 @@ public class OrderService {
                 .deliveryWeight(order.getDeliveryWeight())
                 .deliveryVolume(order.getDeliveryVolume())
                 .fragile(order.getFragile())
-                .deliveryPrice(deliveryPriceValue) // теперь тут реальная цена
+                .deliveryPrice(deliveryPriceValue)
                 .build();
 
-        var paymentResponse = paymentServiceApi.createPayment(orderDtoForPayment);
-
-        if (!paymentResponse.getStatusCode().is2xxSuccessful() || paymentResponse.getBody() == null) {
+        var paymentResponseForOrder = paymentServiceApi.createPayment(orderDtoForPayment);
+        if (!paymentResponseForOrder.getStatusCode().is2xxSuccessful() || paymentResponseForOrder.getBody() == null) {
             throw new IllegalStateException("Не удалось запустить процесс оплаты: платёж не создан");
         }
-        PaymentDto paymentDto = paymentResponse.getBody();
-
+        PaymentDto paymentDto = paymentResponseForOrder.getBody();
         if (paymentDto.getPaymentId() == null) {
             throw new IllegalStateException("Платёж создан, но не вернул paymentId");
         }
@@ -287,16 +169,14 @@ public class OrderService {
 
         orderRepository.save(order);
 
-        // ------------------------------------------------------------------
-
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(item -> item.getOrder().getId()));
-
-        return toDto(order, itemsByOrder);
+        Order finalOrder = order;
+        return toDto(order, items.stream()
+                .collect(Collectors.groupingBy(i -> finalOrder.getId())));
     }
 
-
-    // верен
+    /**
+     * Получение заказов пользователя.
+     */
     public List<OrderDto> getOrdersByUsername(String username, int page, int size) {
         if (username == null || username.isBlank()) {
             throw new NotAuthorizedUserException("Username must not be empty", "Имя пользователя не должно быть пустым", 401);
@@ -320,7 +200,9 @@ public class OrderService {
                 .toList();
     }
 
-
+    /**
+     * Возврат товара.
+     */
     @Transactional
     public OrderDto returnOrder(ProductReturnRequest request) {
         UUID orderId = request.getOrderId();
@@ -330,13 +212,9 @@ public class OrderService {
             throw new IllegalArgumentException("Список возвращаемых товаров не может быть пустым");
         }
 
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 400));
-
+        Order order = findOrderOrFail(orderId);
         OrderStatus currentState = order.getState();
-        log.debug("Статус заказа {}: {}", orderId, currentState);
 
-        // ГЛАВНАЯ ПРОВЕРКА: читаем из enum
         if (!currentState.canReturn()) {
             throw new IllegalStateException("Возврат невозможен для заказа со статусом: " + currentState);
         }
@@ -368,7 +246,6 @@ public class OrderService {
             item.setQuantity(item.getQuantity() - returnQty);
             newProductPrice += item.getPriceAtMoment() * item.getQuantity();
 
-            // ASSEMBLY_FAILED — товары не были забронированы на складе
             if (currentState != OrderStatus.ASSEMBLY_FAILED) {
                 finalProductsToReturnToWarehouse.put(productId, returnQty);
             }
@@ -397,27 +274,23 @@ public class OrderService {
         orderRepository.save(order);
         orderItemRepository.saveAll(items);
 
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> order.getId()));
-
-        return toDto(order, itemsByOrder);
+        return toDto(order, items.stream()
+                .collect(Collectors.groupingBy(i -> order.getId())));
     }
 
+    /**
+     * Расчёт доставки.
+     */
     @Transactional
     public OrderDto calculateDelivery(UUID orderId) {
         log.debug("Начало расчёта доставки для заказа: {}", orderId);
 
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> {
-                    log.warn("Заказ не найден: orderId={}", orderId);
-                    throw new NoOrderFoundException("Заказ не найден", 404);
-                });
+        Order order = findOrderOrFail(orderId);
 
         if (order.getDeliveryWeight() == null && order.getDeliveryVolume() == null) {
             throw new IllegalArgumentException("Недостаточно данных для расчёта доставки (вес/объём)");
         }
 
-        // Готовим DTO только с данными, нужными для расчёта доставки
         OrderDto requestDto = OrderDto.builder()
                 .orderId(order.getId())
                 .deliveryWeight(order.getDeliveryWeight())
@@ -431,9 +304,7 @@ public class OrderService {
             response = deliveryServiceApi.calculateDeliveryCost(requestDto);
         } catch (FeignException e) {
             log.error("Сервис доставки недоступен. Заказ: {}. Ошибка: {}", orderId, e.getMessage());
-            throw new IllegalStateException(
-                    "Сервис доставки (delivery) временно недоступен"
-            );
+            throw new IllegalStateException("Сервис доставки (delivery) временно недоступен");
         }
 
         if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
@@ -445,42 +316,33 @@ public class OrderService {
         double deliveryPrice = Math.round(response.getBody());
         log.info("Стоимость доставки для заказа {}: {}", orderId, deliveryPrice);
 
-        // Обновляем только deliveryPrice
         order.setDeliveryPrice(deliveryPrice);
-        // totalPrice и productPrice НЕ трогаем: они считаются в других местах/методах
         orderRepository.save(order);
 
-        // Собираем itemsByOrder для toDto
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> order.getId()));
-
-        // Используем имеющийся toDto — он возьмёт актуальные deliveryPrice из order
-        return toDto(order, itemsByOrder);
+        return toDto(order, buildOrderItemsList(orderId));
     }
 
-    //
+    /**
+     * Расчёт итоговой стоимости.
+     */
     @Transactional
     public OrderDto calculateTotal(UUID orderId) {
-        // 1. Нашли заказ
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден", 400));
+        Order order = findOrderOrFail(orderId);
 
-        // 2. ПРОВЕРКА: Доставка должна быть уже посчитана и лежать в БД!
         if (order.getDeliveryPrice() == null || order.getDeliveryPrice() <= 0) {
             throw new NotEnoughInfoInOrderToCalculateException(
                     "Сначала рассчитайте доставку через /api/v1/order/calculate/delivery", 400
             );
         }
 
-        // 3. Собираем товары для запроса
         List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
         Map<UUID, Long> productsMap = items.stream()
                 .filter(i -> i.getQuantity() > 0)
-                .collect(Collectors.toMap(OrderItem::getProductId, OrderItem::getQuantity));
+                .collect(Collectors.toMap(
+                        OrderItem::getProductId,
+                        OrderItem::getQuantity
+                ));
 
-        // 4. Формируем DTO для отправки в сервис оплаты
-        // ВАЖНО: мы передаём туда deliveryPrice, которую УЖЕ сохранили в БД на прошлом шаге
         OrderDto requestDto = OrderDto.builder()
                 .orderId(order.getId())
                 .shoppingCartId(order.getShoppingCartId())
@@ -488,13 +350,10 @@ public class OrderService {
                 .deliveryWeight(order.getDeliveryWeight())
                 .deliveryVolume(order.getDeliveryVolume())
                 .fragile(order.getFragile())
-                // 👇 Вот это самое важное: берём из БД и кладём в запрос
                 .deliveryPrice(order.getDeliveryPrice())
                 .build();
 
-        // 5. Стучимся в сервис оплаты. Он вернёт нам итоговую сумму (Товары + НДС + Доставка)
         ResponseEntity<Double> response = paymentServiceApi.calculateTotalCost(requestDto);
-
         if (!response.getStatusCode().is2xxSuccessful()) {
             throw new IllegalStateException("Сервис оплаты не смог рассчитать сумму");
         }
@@ -504,19 +363,180 @@ public class OrderService {
             throw new IllegalArgumentException("Пустой ответ от сервиса оплаты");
         }
 
-        // 6. ЗАПОЛНЯЕМ ПОЛЯ ЗАКАЗА (то, о чём ты спрашивал)
-
-        // totalPrice = то, что вернул сервис оплаты (округляем до Long, так как у тебя тип Long)
         order.setTotalPrice(totalAmount);
-
-        // 7. Сохраняем в БД
         orderRepository.save(order);
 
-        // 8. Возвращаем DTO с готовыми цифрами
+        return toDto(order, items.stream()
+                .collect(Collectors.groupingBy(i -> order.getId())));
+    }
+
+    @Transactional
+    public OrderDto markAssembled(UUID orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Заказ не найден: " + orderId));
+
+        if (!order.getState().equals(OrderStatus.NEW)) {
+            throw new IllegalStateException(
+                    "Нельзя собирать заказ со статусом: " + order.getState()
+            );
+        }
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        if (items.isEmpty()) {
+            throw new IllegalStateException("В заказе нет товаров");
+        }
+
+        Map<UUID, Long> productsMap = items.stream()
+                .collect(Collectors.toMap(
+                        OrderItem::getProductId,
+                        OrderItem::getQuantity
+                ));
+
+        AssemblyProductsForOrderRequest request = new AssemblyProductsForOrderRequest(orderId, productsMap);
+
+        ResponseEntity<BookedProductsDto> response = warehouseServiceApi.assembleOrder(request);
+        BookedProductsDto booked = response.getBody();
+        if (booked == null) {
+            throw new IllegalStateException("Склад не вернул данные о бронировании");
+        }
+
+        order.setDeliveryWeight(booked.getDeliveryWeight());
+        order.setDeliveryVolume(booked.getDeliveryVolume());
+        order.setFragile(booked.isFragile());
+
+        order.setState(OrderStatus.ASSEMBLED);
+        orderRepository.save(order);
+
+        log.info("Заказ {} собран: вес={}, объём={}, хрупкий={}",
+                order.getId(), order.getDeliveryWeight(), order.getDeliveryVolume(), order.getFragile());
+
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> order.getId()));
+
+        return toDto(order, itemsByOrder);
+    }
+
+    @Transactional
+    public OrderDto markAssemblyFailed(UUID orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Заказ не найден: " + orderId));
+
+        if (!order.getState().equals(OrderStatus.NEW) && !order.getState().equals(OrderStatus.ASSEMBLED)) {
+            throw new IllegalStateException(
+                    "Недопустимый статус для отмены сборки: текущий статус = " + order.getState()
+            );
+        }
+
+        if (order.getState().equals(OrderStatus.NEW)) {
+            order.setState(OrderStatus.ASSEMBLY_FAILED);
+            orderRepository.save(order);
+            log.info("Заказ {} переведён в ASSEMBLY_FAILED (статус был NEW, брони не было)", orderId);
+            return toDto(order, Map.of());
+        }
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+
+        if (!items.isEmpty()) {
+            Map<UUID, Long> productsToReturn = items.stream()
+                    .collect(Collectors.toMap(
+                            OrderItem::getProductId,
+                            OrderItem::getQuantity,
+                            (existing, replacement) -> existing
+                    ));
+
+            try {
+                warehouseServiceApi.returnProducts(productsToReturn);
+                log.info("Остатки товаров для заказа {} возвращены на склад", orderId);
+            } catch (Exception e) {
+                log.error("Не удалось вернуть товары на склад для заказа {}. Статус не изменён.", orderId, e);
+                throw new IllegalStateException(
+                        "Склад недоступен, невозможно откатить бронь товаров"
+                );
+            }
+        } else {
+            log.warn("В заказе {} нет позиций, хотя статус ASSEMBLED", orderId);
+        }
+
+        order.setState(OrderStatus.ASSEMBLY_FAILED);
+        order.setDeliveryWeight(0.0);
+        order.setDeliveryVolume(0.0);
+        order.setFragile(false);
+        orderRepository.save(order);
+        log.info("Сборка заказа {} отменена, статус: ASSEMBLY_FAILED", order.getId());
+
+        return toDto(order, items.stream()
+                .collect(Collectors.groupingBy(i -> order.getId())));
+    }
+
+    public OrderDto markDelivered(UUID orderId) {
+        return markOrderStatus(orderId, OrderStatus.DELIVERED, "Заказ {} доставлен, статус установлен: DELIVERED");
+    }
+
+    public OrderDto markDeliveryFailed(UUID orderId) {
+        return markOrderStatus(orderId, OrderStatus.DELIVERY_FAILED, "Доставка заказа {} завершилась ошибкой, статус установлен: DELIVERY_FAILED");
+    }
+
+    @Transactional
+    public OrderDto markOrderPaymentAsPaid(UUID orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден для обновления статуса", 404));
+
+        order.setState(OrderStatus.PAID);
+        orderRepository.save(order);
+        log.info("Заказ {} помечен как оплаченный, статус: {}", orderId, order.getState());
+
+        return buildOrderDto(order);
+    }
+
+    @Transactional
+    public OrderDto markOrderPaymentAsFailed(UUID orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден для обновления статуса", 404));
+
+        // В твоём коде ты ставишь NEW — оставь так, если это по ТЗ
+        order.setState(OrderStatus.NEW);
+        orderRepository.save(order);
+        log.info("Заказ {} помечен как ошибка оплаты, статус: {}", orderId, order.getState());
+
+        return buildOrderDto(order);
+    }
+
+
+// ------------------------------------------------------------------
+// Вспомогательные методы (вынесены для чистоты кода)
+// ------------------------------------------------------------------
+
+    @Transactional
+    private OrderDto markOrderStatus(UUID orderId, OrderStatus targetStatus, String actionLog) {
+        if (orderId == null) {
+            throw new IllegalArgumentException("orderId обязателен");
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
+
+        statusService.transitionTo(orderId, targetStatus);
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
+
+        log.info(actionLog, orderId);
+        return toDto(order, itemsByOrder);
+    }
+
+    private OrderDto buildOrderDto(Order order) {
+        List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
+        Map<UUID, Long> productsMap = items.stream()
+                .filter(i -> i.getQuantity() > 0)
+                .collect(Collectors.toMap(OrderItem::getProductId, OrderItem::getQuantity));
+
         return OrderDto.builder()
                 .orderId(order.getId())
                 .shoppingCartId(order.getShoppingCartId())
                 .products(productsMap)
+                .paymentId(order.getPaymentId())
+                .deliveryId(order.getDeliveryId())
                 .state(order.getState())
                 .deliveryWeight(order.getDeliveryWeight())
                 .deliveryVolume(order.getDeliveryVolume())
@@ -525,6 +545,139 @@ public class OrderService {
                 .deliveryPrice(order.getDeliveryPrice())
                 .productPrice(order.getProductPrice())
                 .build();
+    }
+
+
+    private Order findOrderOrFail(UUID orderId) {
+        return orderRepository.findById(orderId)
+                .orElseThrow(() -> {
+                    log.warn("Заказ не найден: orderId={}", orderId);
+                    throw new NoOrderFoundException("Заказ не найден: " + orderId, 404);
+                });
+    }
+
+    private void validateOrderForPayment(Order order) {
+        if (order.getState() != OrderStatus.ASSEMBLED) {
+            log.warn("Нельзя оплатить заказ {}: статус={}, ожидается ASSEMBLED", order.getId(), order.getState());
+            throw new IllegalStateException(
+                    "Оплата возможна только для заказа со статусом ASSEMBLED. Текущий статус: " + order.getState()
+            );
+        }
+        if (order.getDeliveryPrice() == null || order.getDeliveryPrice() <= 0) {
+            throw new NotEnoughInfoInOrderToCalculateException(
+                    "Сначала рассчитайте доставку через /api/v1/order/calculate/delivery", 400
+            );
+        }
+        if (order.getTotalPrice() == null || order.getTotalPrice() <= 0) {
+            throw new NotEnoughInfoInOrderToCalculateException(
+                    "Сначала рассчитайте полную стоимость через /api/v1/order/calculate/total", 400
+            );
+        }
+    }
+
+    private ShoppingCartDto validateCartNotEmpty(ShoppingCartDto cart) {
+        if (cart == null || cart.getProducts() == null || cart.getProducts().isEmpty()) {
+            throw new IllegalArgumentException("Корзина не может быть пустой");
+        }
+        return cart;
+    }
+
+    private Map<UUID, Long> buildProductsMap(UUID orderId) {
+        return orderItemRepository.findByOrderId(orderId).stream()
+                .filter(i -> i.getQuantity() > 0)
+                .collect(Collectors.toMap(OrderItem::getProductId, OrderItem::getQuantity));
+    }
+
+    private List<OrderItem> buildOrderItems(Order order, Map<UUID, Long> products) {
+        return products.entrySet().stream()
+                .map(entry -> OrderItem.builder()
+                        .order(order)
+                        .productId(entry.getKey())
+                        .quantity(entry.getValue())
+                        .priceAtMoment(0L) // цена будет проставлена позже
+                        .build())
+                .toList();
+    }
+
+    private long calculateProductPrice(Order order, List<OrderItem> items) {
+        Map<UUID, Long> productsMap = items.stream()
+                .filter(i -> i.getQuantity() > 0)
+                .collect(Collectors.toMap(
+                        OrderItem::getProductId,
+                        OrderItem::getQuantity
+                ));
+
+        OrderDto requestDto = OrderDto.builder()
+                .orderId(order.getId())
+                .products(productsMap)
+                .build();
+
+        ResponseEntity<Double> response = paymentServiceApi.calculateProductCost(requestDto);
+        if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+            throw new IllegalStateException(
+                    "Не удалось рассчитать стоимость товаров: сервис вернул статус " + response.getStatusCode()
+            );
+        }
+
+        double total = response.getBody();
+        return Math.round(total);
+    }
+
+
+    private Double calculateDeliveryCost(Order order) {
+        OrderDto requestDto = OrderDto.builder()
+                .orderId(order.getId())
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                .build();
+
+        var response = deliveryServiceApi.calculateDeliveryCost(requestDto);
+        if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+            throw new IllegalStateException(
+                    "Не удалось рассчитать стоимость доставки: сервис вернул статус " + response.getStatusCode()
+            );
+        }
+        return response.getBody();
+    }
+
+    private OrderDto buildOrderDtoForPayment(Order order, Map<UUID, Long> productsMap) {
+        return OrderDto.builder()
+                .orderId(order.getId())
+                .shoppingCartId(order.getShoppingCartId())
+                .products(productsMap)
+                .deliveryId(order.getDeliveryId())
+                .paymentId(order.getPaymentId())
+                .state(order.getState())
+                .deliveryWeight(order.getDeliveryWeight())
+                .deliveryVolume(order.getDeliveryVolume())
+                .fragile(order.getFragile())
+                .totalPrice(order.getTotalPrice())
+                .deliveryPrice(order.getDeliveryPrice())
+                .productPrice(order.getProductPrice())
+                .build();
+    }
+
+    private void handlePaymentResponse(ResponseEntity<PaymentDto> response, Order order) {
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            log.error("Сервис оплаты вернул ошибку при создании платежа: {}", response.getStatusCode());
+            throw new IllegalStateException("Не удалось создать платёж в сервисе оплаты");
+        }
+
+        PaymentDto paymentDto = response.getBody();
+        if (paymentDto == null) {
+            throw new IllegalArgumentException("Пустой ответ от сервиса оплаты");
+        }
+
+        order.setPaymentId(paymentDto.getPaymentId());
+        order.setState(OrderStatus.ON_PAYMENT);
+        // save будет вызван в конце транзакции
+    }
+
+    private Map<UUID, List<OrderItem>> buildOrderItemsList(UUID orderId) {
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        return items.stream()
+                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
     }
 
     private OrderDto toDto(Order order, Map<UUID, List<OrderItem>> itemsByOrder) {
@@ -552,230 +705,5 @@ public class OrderService {
                 .productPrice(order.getProductPrice())
                 .build();
     }
-
-    //проверен
-    public OrderDto markAssembled(UUID orderId) {
-        // 1. Находим заказ
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new IllegalArgumentException("Заказ не найден: " + orderId));
-
-        // 2. Проверка статуса: собирать можно только NEW
-        if (!order.getState().equals(OrderStatus.NEW)) {
-            throw new IllegalStateException(
-                    "Нельзя собирать заказ со статусом: " + order.getState()
-            );
-        }
-
-        // 3. Достаём позиции заказа
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        if (items.isEmpty()) {
-            throw new IllegalStateException("В заказе нет товаров");
-        }
-
-        // 4. Превращаем в Map<productId, quantity> для запроса на склад
-        Map<UUID, Long> productsMap = items.stream()
-                .collect(Collectors.toMap(
-                        OrderItem::getProductId,
-                        OrderItem::getQuantity
-                ));
-
-        AssemblyProductsForOrderRequest request = new AssemblyProductsForOrderRequest(orderId, productsMap);
-
-        // 5. Отправляем на склад для бронирования
-        ResponseEntity<BookedProductsDto> response = warehouseServiceApi.assembleOrder(request);
-        BookedProductsDto booked = response.getBody();
-        if (booked == null) {
-            throw new IllegalStateException("Склад не вернул данные о бронировании");
-        }
-
-        // 6. Обновляем параметры заказа данными от склада
-        order.setDeliveryWeight(booked.getDeliveryWeight());
-        order.setDeliveryVolume(booked.getDeliveryVolume());
-        order.setFragile(booked.isFragile());
-
-        // 7. Меняем статус ТОЛЬКО после успешного ответа от склада
-        order.setState(OrderStatus.ASSEMBLED);
-
-        orderRepository.save(order);
-
-        log.info("Заказ {} собран: вес={}, объём={}, хрупкий={}",
-                order.getId(), order.getDeliveryWeight(), order.getDeliveryVolume(), order.getFragile());
-
-        // Формируем DTO (items у нас уже есть из шага 3)
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> order.getId()));
-
-        return toDto(order, itemsByOrder);
-    }
-
-    /**
-     * Обрабатывает ошибку сборки заказа.
-     *
-     * Логика:
-     * 1. Если статус NEW — просто меняем на ASSEMBLY_FAILED (брони не было).
-     * 2. Если статус ASSEMBLED — вызываем returnProducts на складе для возврата остатков.
-     *    ⚠️ ВАЖНО: В текущем ТЗ нет метода для удаления записей OrderBooking на стороне склада.
-     *    Поэтому бронь остаётся в БД склада, а обновляются только остатки (quantity).
-     *    Это допустимо только для учебного спринта. В продакшене требуется отдельный эндпоинт
-     *    для очистки брони по orderId.
-     */
-    //проверен
-    public OrderDto markAssemblyFailed(UUID orderId) {
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new IllegalArgumentException("Заказ не найден: " + orderId));
-
-        if (!order.getState().equals(OrderStatus.NEW) && !order.getState().equals(OrderStatus.ASSEMBLED)) {
-            throw new IllegalStateException(
-                    "Недопустимый статус для отмены сборки: текущий статус = " + order.getState()
-            );
-        }
-
-        if (order.getState().equals(OrderStatus.NEW)) {
-            order.setState(OrderStatus.ASSEMBLY_FAILED);
-            orderRepository.save(order);
-            log.info("Заказ {} переведён в ASSEMBLY_FAILED (статус был NEW, брони не было)", orderId);
-            return toDto(order, Map.of());
-        }
-
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-
-        if (!items.isEmpty()) {
-            Map<UUID, Long> productsToReturn = items.stream()
-                    .collect(Collectors.toMap(
-                            OrderItem::getProductId,
-                            OrderItem::getQuantity,
-                            (existing, replacement) -> existing // защита от дублей
-                    ));
-
-            try {
-                // Вызываем существующий метод склада для возврата остатков
-                warehouseServiceApi.returnProducts(productsToReturn);
-                log.info("Остатки товаров для заказа {} возвращены на склад", orderId);
-            } catch (Exception e) {
-                log.error("Не удалось вернуть товары на склад для заказа {}. Статус не изменён.", orderId, e);
-                throw new IllegalStateException(
-                        "Склад недоступен, невозможно откатить бронь товаров");
-            }
-        } else {
-            log.warn("В заказе {} нет позиций, хотя статус ASSEMBLED", orderId);
-        }
-
-
-        order.setState(OrderStatus.ASSEMBLY_FAILED);
-        order.setDeliveryWeight(0.0);
-        order.setDeliveryVolume(0.0);
-        order.setFragile(false);
-
-        orderRepository.save(order);
-        log.info("Сборка заказа {} отменена, статус: ASSEMBLY_FAILED", order.getId());
-
-        return toDto(order, items.stream()
-                .collect(Collectors.groupingBy(i -> order.getId())));
-    }
-
-    @Transactional
-    private OrderDto markOrderStatus(UUID orderId, OrderStatus targetStatus, String actionLog) {
-        if (orderId == null) {
-            throw new IllegalArgumentException("orderId обязателен");
-        }
-
-        Order order = orderRepository.findById(orderId)
-                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
-
-        statusService.transitionTo(orderId, targetStatus);
-
-        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
-        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
-                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
-
-        log.info(actionLog, orderId);
-        return toDto(order, itemsByOrder);
-    }
-
-        @Transactional
-        public OrderDto markOrderPaymentAsPaid(UUID orderId) {
-            Order order = orderRepository.findById(orderId)
-                    .orElseThrow(() -> new NoOrderFoundException("Заказ не найден для обновления статуса", 404));
-
-            // Меняем статус на PAID (или тот, который у тебя в enum)
-            order.setState(OrderStatus.PAID);
-            orderRepository.save(order);
-            log.info("Заказ {} помечен как оплаченный, статус: {}", orderId, order.getState());
-
-            // Собираем DTO для возврата
-            return buildOrderDto(order);
-        }
-
-        @Transactional
-        public OrderDto markOrderPaymentAsFailed(UUID orderId) {
-            Order order = orderRepository.findById(orderId)
-                    .orElseThrow(() -> new NoOrderFoundException("Заказ не найден для обновления статуса", 404));
-
-            // Логика: при ошибке оплаты часто возвращают заказ в NEW (чтобы можно было оформить заново)
-            // Либо ставят CANCELLED — выбери тот статус, который соответствует твоему ТЗ
-            order.setState(OrderStatus.NEW);
-            orderRepository.save(order);
-            log.info("Заказ {} помечен как ошибка оплаты, статус: {}", orderId, order.getState());
-
-            // Собираем DTO для возврата
-            return buildOrderDto(order);
-        }
-
-        /**
-         * Вспомогательный метод, чтобы не дублировать сборку DTO.
-         * Подставь сюда все поля, которые нужны в твоём OrderDto.
-         */
-        private OrderDto buildOrderDto(Order order) {
-            List<OrderItem> items = orderItemRepository.findByOrderId(order.getId());
-            Map<UUID, Long> productsMap = items.stream()
-                    .filter(i -> i.getQuantity() > 0)
-                    .collect(Collectors.toMap(OrderItem::getProductId, OrderItem::getQuantity));
-
-            return OrderDto.builder()
-                    .orderId(order.getId())
-                    .shoppingCartId(order.getShoppingCartId())
-                    .products(productsMap)
-                    .paymentId(order.getPaymentId())
-                    .deliveryId(order.getDeliveryId())
-                    .state(order.getState())
-                    .deliveryWeight(order.getDeliveryWeight())
-                    .deliveryVolume(order.getDeliveryVolume())
-                    .fragile(order.getFragile())
-                    .totalPrice(order.getTotalPrice())
-                    .deliveryPrice(order.getDeliveryPrice())
-                    .productPrice(order.getProductPrice())
-                    .build();
-        }
-
-
-
-    public OrderDto markDelivered(UUID orderId) {
-        return markOrderStatus(orderId, OrderStatus.DELIVERED, "Заказ {} доставлен, статус установлен: DELIVERED");
-    }
-
-    public OrderDto markDeliveryFailed(UUID orderId) {
-        return markOrderStatus(orderId, OrderStatus.DELIVERY_FAILED, "Доставка заказа {} завершилась ошибкой, статус установлен: DELIVERY_FAILED");
-    }
-
-    public OrderDto markCompleted(UUID orderId) {
-        return markOrderStatus(orderId, OrderStatus.COMPLETED, "Сборка заказа {} завершилась, статус установлен: COMPLETED");
-    }
-
-    /**
-     * Вызывает сервис оплаты для расчёта общей стоимости товаров в заказе.
-     * Возвращает округлённую сумму в Long.
-     */
-    private long calculateAndGetProductPrice(Order order, List<OrderItem> items) {
-        OrderDto orderForCalculation = toDto(order, items.stream()
-                .collect(Collectors.groupingBy(i -> order.getId())));
-
-        ResponseEntity<Double> paymentResponse = paymentServiceApi.calculateProductCost(orderForCalculation);
-        Double totalCost = paymentResponse.getBody();
-
-        if (totalCost == null) {
-            throw new IllegalStateException("Сервис оплаты вернул null вместо стоимости");
-        }
-
-        return Math.round(totalCost);
-    }
 }
+
