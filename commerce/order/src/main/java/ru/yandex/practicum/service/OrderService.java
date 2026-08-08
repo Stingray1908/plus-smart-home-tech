@@ -501,6 +501,23 @@ public class OrderService {
         return buildOrderDto(order);
     }
 
+    @Transactional
+    public OrderDto markCompleted(UUID orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoOrderFoundException("Заказ не найден: " + orderId, 404));
+
+        // Проверка и смена статуса через машину состояний
+        statusService.transitionTo(orderId, OrderStatus.COMPLETED);
+
+        List<OrderItem> items = orderItemRepository.findByOrderId(orderId);
+        Map<UUID, List<OrderItem>> itemsByOrder = items.stream()
+                .collect(Collectors.groupingBy(i -> i.getOrder().getId()));
+
+        log.info("Заказ {} помечен как завершённый (COMPLETED)", orderId);
+
+        return toDto(order, itemsByOrder);
+    }
+
 
 // ------------------------------------------------------------------
 // Вспомогательные методы (вынесены для чистоты кода)
