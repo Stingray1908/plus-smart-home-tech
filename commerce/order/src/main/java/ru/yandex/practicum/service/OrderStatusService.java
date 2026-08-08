@@ -28,7 +28,6 @@ public class OrderStatusService {
         }
 
         order.setState(newStatus);
-
     }
 
     private boolean isValidTransition(OrderStatus current, OrderStatus next) {

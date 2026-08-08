@@ -21,7 +21,6 @@ public class PaymentController {
      * Формирование оплаты для заказа (переход в платежный шлюз).
      */
 
-    //
     @PostMapping
     public ResponseEntity<PaymentDto> createPayment(@RequestBody OrderDto request) {
         PaymentDto response = paymentService.createPayment(request);
@@ -33,7 +32,6 @@ public class PaymentController {
      * Расчёт полной стоимости заказа: товары + НДС (10%) + доставка.
      */
 
-    //
     @PostMapping("/totalCost")
     public ResponseEntity<Double> calculateTotalCost(@RequestBody OrderDto orderDto) {
         Double totalCost = paymentService.calculateTotalCost(orderDto);
@@ -45,7 +43,6 @@ public class PaymentController {
      * Только расчёт стоимости товаров (для UI).
      */
 
-    //
     @PostMapping("/productCost")
     public ResponseEntity<Double> calculateProductCost(@RequestBody OrderDto orderDto) {
         Double dto = paymentService.calculateProducts(orderDto);
@@ -58,7 +55,6 @@ public class PaymentController {
      * Логика: найти платёж -> поставить статус SUCCESS -> вызвать сервис заказов.
      */
 
-//
     @PostMapping("/refund")
     public ResponseEntity<PaymentDto> simulateSuccessPayment(@RequestBody UUID paymentId) {
         PaymentDto dto = paymentService.markPaymentSuccess(paymentId);
@@ -71,7 +67,6 @@ public class PaymentController {
      * Логика: найти платёж -> поставить статус FAILED -> вызвать сервис заказов.
      */
 
-    //
     @PostMapping("/failed")
     public ResponseEntity<PaymentDto> simulateFailedPayment(@RequestBody UUID paymentId) {
         PaymentDto dto = paymentService.markPaymentFailed(paymentId);
