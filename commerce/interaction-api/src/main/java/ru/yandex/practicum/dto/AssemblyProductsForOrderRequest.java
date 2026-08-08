@@ -17,14 +17,6 @@ import java.util.UUID;
 @AllArgsConstructor
 public class AssemblyProductsForOrderRequest {
 
-
-
-    /**
-     * Идентификатор заказа в БД.
-     */
     private UUID orderId;
-    /**
-     * Карта товаров: ключ — UUID товара, значение — количество (целое число).
-     */
     private Map<UUID, Long> products;
 }

@@ -2,10 +2,11 @@ package ru.yandex.practicum.api;
 
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import ru.yandex.practicum.dto.DeliveryDto;
 import ru.yandex.practicum.dto.OrderDto;
-import ru.yandex.practicum.dto.ShoppingCartDto;
 
 import java.util.UUID;
 
@@ -16,7 +17,7 @@ public interface DeliveryServiceApi {
     public ResponseEntity<DeliveryDto> createOrUpdateDelivery(@RequestBody DeliveryDto dto);
 
     @PostMapping("/cost")
-    public ResponseEntity<Double> calculateDeliveryCost(@RequestBody OrderDto dto) ;
+    public ResponseEntity<Double> calculateDeliveryCost(@RequestBody OrderDto dto);
 
     @PostMapping("/successful")
     public ResponseEntity<DeliveryDto> markDeliverySuccessful(@RequestBody UUID orderId);
@@ -26,7 +27,6 @@ public interface DeliveryServiceApi {
 
     @PostMapping("/failed")
     public ResponseEntity<DeliveryDto> markDeliveryFailed(@RequestBody UUID orderId);
-
 
 
 }

@@ -39,13 +39,13 @@ public class Order {
     private UUID deliveryId;
 
     @Column(name = "total_price", precision = 10, scale = 2)
-    private Long totalPrice;
+    private Double totalPrice;
 
     @Column(name = "product_price", precision = 10, scale = 2)
-    private Long productPrice;
+    private Double productPrice;
 
     @Column(name = "delivery_price", precision = 10, scale = 2)
-    private Long deliveryPrice;
+    private Double deliveryPrice;
 
     @Column(name = "delivery_weight")
     private Double deliveryWeight;

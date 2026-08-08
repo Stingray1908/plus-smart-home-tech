@@ -17,7 +17,7 @@ public class OrderDto {
     private Double deliveryWeight;
     private Double deliveryVolume;
     private Boolean fragile;
-    private Long totalPrice;
-    private Long deliveryPrice;
-    private Long productPrice;
+    private Double totalPrice;
+    private Double deliveryPrice;
+    private Double productPrice;
 }

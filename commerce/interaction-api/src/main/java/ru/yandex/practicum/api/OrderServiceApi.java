@@ -2,13 +2,13 @@ package ru.yandex.practicum.api;
 
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import ru.yandex.practicum.dto.CreateNewOrderRequest;
 import ru.yandex.practicum.dto.OrderDto;
 import ru.yandex.practicum.dto.ProductReturnRequest;
-import ru.yandex.practicum.dto.ShoppingCartDto;
 
-import java.util.List;
 import java.util.UUID;
 
 @FeignClient(name = "order", path = "/api/v1/order")

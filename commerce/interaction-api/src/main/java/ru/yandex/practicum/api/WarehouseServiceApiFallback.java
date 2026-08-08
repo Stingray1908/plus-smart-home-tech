@@ -1,7 +1,7 @@
 package ru.yandex.practicum.api;
 
-import org.springframework.stereotype.Component;
 import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Component;
 import org.springframework.web.bind.annotation.RequestBody;
 import ru.yandex.practicum.dto.*;
 

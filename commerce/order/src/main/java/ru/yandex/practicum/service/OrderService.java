@@ -175,9 +175,9 @@ public class OrderService {
         Order order = Order.builder()
                 .shoppingCartId(cart.getShoppingCartId())
                 .state(OrderStatus.NEW)
-                .totalPrice(0L)
-                .productPrice(0L)
-                .deliveryPrice(0L) // пока 0, цена доставки будет позже
+                .totalPrice(0d)
+                .productPrice(0d)
+                .deliveryPrice(0d) // пока 0, цена доставки будет позже
                 .deliveryWeight(totalWeight)
                 .deliveryVolume(totalVolume)
                 .fragile(fragile)
@@ -196,7 +196,7 @@ public class OrderService {
                         .build())
                 .toList();
 
-        long productPriceValue = calculateAndGetProductPrice(order, items);
+        double productPriceValue = calculateAndGetProductPrice(order, items);
         order.setProductPrice(productPriceValue);
         order.setTotalPrice(productPriceValue); // пока без доставки
         orderRepository.save(order);
@@ -244,7 +244,7 @@ public class OrderService {
             );
         }
         Double deliveryPriceValue = deliveryCostResponse.getBody();
-        long deliveryPriceLong = Math.round(deliveryPriceValue);
+        double deliveryPriceLong = Math.round(deliveryPriceValue);
 
         // Сохраняем цену доставки в заказ (чтобы она была в БД и для отладки)
         order.setDeliveryPrice(deliveryPriceLong);
@@ -264,7 +264,7 @@ public class OrderService {
                 .deliveryWeight(order.getDeliveryWeight())
                 .deliveryVolume(order.getDeliveryVolume())
                 .fragile(order.getFragile())
-                .deliveryPrice(deliveryPriceValue.longValue()) // теперь тут реальная цена
+                .deliveryPrice(deliveryPriceValue) // теперь тут реальная цена
                 .build();
 
         var paymentResponse = paymentServiceApi.createPayment(orderDtoForPayment);
@@ -280,9 +280,9 @@ public class OrderService {
 
         order.setPaymentId(paymentDto.getPaymentId());
 
-        Long finalTotalPrice = (paymentDto.getTotalPayment() != null)
+        Double finalTotalPrice = (paymentDto.getTotalPayment() != null)
                 ? Math.round(paymentDto.getTotalPayment())
-                : 0L;
+                : 0d;
         order.setTotalPrice(finalTotalPrice);
 
         orderRepository.save(order);
@@ -345,7 +345,7 @@ public class OrderService {
         Map<UUID, OrderItem> itemMap = items.stream()
                 .collect(Collectors.toMap(OrderItem::getProductId, i -> i));
 
-        long newProductPrice = 0;
+        double newProductPrice = 0;
         Map<UUID, Long> finalProductsToReturnToWarehouse = new HashMap<>();
 
         for (var entry : productsToReturn.entrySet()) {
@@ -442,7 +442,7 @@ public class OrderService {
             );
         }
 
-        long deliveryPrice = Math.round(response.getBody());
+        double deliveryPrice = Math.round(response.getBody());
         log.info("Стоимость доставки для заказа {}: {}", orderId, deliveryPrice);
 
         // Обновляем только deliveryPrice
@@ -507,7 +507,7 @@ public class OrderService {
         // 6. ЗАПОЛНЯЕМ ПОЛЯ ЗАКАЗА (то, о чём ты спрашивал)
 
         // totalPrice = то, что вернул сервис оплаты (округляем до Long, так как у тебя тип Long)
-        order.setTotalPrice(Math.round(totalAmount));
+        order.setTotalPrice(totalAmount);
 
         // 7. Сохраняем в БД
         orderRepository.save(order);
