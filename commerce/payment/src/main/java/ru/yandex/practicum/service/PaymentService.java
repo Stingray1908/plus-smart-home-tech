@@ -15,8 +15,13 @@ import ru.yandex.practicum.entity.PaymentStatus;
 import ru.yandex.practicum.repository.PaymentRepository;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -38,24 +43,33 @@ public class PaymentService {
             return BigDecimal.ZERO;
         }
 
+        List<UUID> productIds = new ArrayList<>(dto.getProducts().keySet());
+        List<ProductDto> products = storeServiceApi.getProductsByIds(productIds);
+
+        Map<UUID, ProductDto> productMap = products.stream()
+                .collect(Collectors.toMap(ProductDto::getProductId, Function.identity()));
+
         BigDecimal total = BigDecimal.ZERO;
+
         for (var entry : dto.getProducts().entrySet()) {
             UUID productId = entry.getKey();
             Long quantity = entry.getValue();
 
-            var response = storeServiceApi.getProductById(productId);
-            if (!response.getStatusCode().is2xxSuccessful()) {
+            ProductDto product = productMap.get(productId);
+            if (product == null) {
                 throw new IllegalStateException("Не удалось получить продукт id=" + productId);
             }
-            ProductDto product = response.getBody();
-            if (product == null || product.getPrice() == null) {
+            if (product.getPrice() == null) {
                 throw new IllegalStateException("Продукт id=" + productId + " не содержит цены");
             }
 
-            total = total.add(product.getPrice().add(new BigDecimal(quantity)));
+            total = total.add(product.getPrice()
+                    .multiply(BigDecimal.valueOf(quantity)));
         }
+
         return total;
     }
+
 
     /**
      * Расчёт полной стоимости заказа.

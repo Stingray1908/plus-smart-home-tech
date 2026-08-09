@@ -9,6 +9,7 @@ import ru.yandex.practicum.dto.ProductDto;
 import ru.yandex.practicum.enums.QuantityState;
 import ru.yandex.practicum.service.ProductService;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -39,6 +40,11 @@ public class ShoppingStoreController implements StoreServiceApi {
     public ResponseEntity<ProductDto> getProductById(@PathVariable UUID productId) {
         ProductDto dto = productService.findById(productId);
         return ResponseEntity.ok(dto);
+    }
+
+    @Override
+    public List<ProductDto> getProductsByIds(@RequestParam List<UUID> ids) {
+        return productService.getProductsByIds(ids);
     }
 
     @PostMapping
