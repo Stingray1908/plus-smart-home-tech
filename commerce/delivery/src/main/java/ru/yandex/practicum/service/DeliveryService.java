@@ -12,6 +12,8 @@ import ru.yandex.practicum.exception.NoDeliveryFoundException;
 import ru.yandex.practicum.exception.NotEnoughInfoInOrderToCalculateException;
 import ru.yandex.practicum.repository.DeliveryRepository;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -162,7 +164,7 @@ public class DeliveryService {
         return toDto(delivery);
     }
 
-    public Double calculateCost(OrderDto orderDto) {
+    public BigDecimal calculateCost(OrderDto orderDto) {
         if (orderDto.getOrderId() == null) {
             throw new IllegalArgumentException("orderId обязателен для расчёта стоимости");
         }
@@ -173,7 +175,8 @@ public class DeliveryService {
             throw new NotEnoughInfoInOrderToCalculateException(
                     "Доставка для заказа не найдена",
                     "Не удалось рассчитать стоимость: для заказа не создана доставка",
-                    404, null
+                    404,
+                    null
             );
         }
 
@@ -211,44 +214,56 @@ public class DeliveryService {
             );
         }
 
-        double baseRate = 5.0;
-        double currentSum = baseRate;
+        // Все константы сразу в BigDecimal
+        BigDecimal baseRate = new BigDecimal("5.00");
+        BigDecimal warehouseMultiplier = isAddress1 ? BigDecimal.ONE : new BigDecimal("2.0");
 
-        double warehouseMultiplier = isAddress1 ? 1.0 : 2.0;
-        currentSum += baseRate * warehouseMultiplier;
+        BigDecimal currentSum = baseRate
+                .add(baseRate.multiply(warehouseMultiplier));
+
         log.debug("Коэффициент склада ({}): множитель {}, итог {}", warehouseLocation, warehouseMultiplier, currentSum);
 
         boolean isFragile = Boolean.TRUE.equals(orderDto.getFragile());
         if (isFragile) {
-            currentSum += currentSum * 0.2;
+            // +20%
+            BigDecimal fragileMultiplier = new BigDecimal("1.20");
+            currentSum = currentSum.multiply(fragileMultiplier);
         }
         log.debug("Учёт хрупкости ({}): итог {}", isFragile, currentSum);
 
-        double weight = (orderDto.getDeliveryWeight() != null) ? orderDto.getDeliveryWeight() : 0.0;
-        currentSum += weight * 0.3;
-        log.debug("Учёт веса ({} кг): итог {}", weight, currentSum);
+        double weightDouble = (orderDto.getDeliveryWeight() != null) ? orderDto.getDeliveryWeight() : 0.0;
+        BigDecimal weight = BigDecimal.valueOf(weightDouble);
+        BigDecimal weightCost = weight.multiply(new BigDecimal("0.30"));
+        currentSum = currentSum.add(weightCost);
+        log.debug("Учёт веса ({} кг): стоимость {}, итог {}", weight, weightCost, currentSum);
 
-        double volume = (orderDto.getDeliveryVolume() != null) ? orderDto.getDeliveryVolume() : 0.0;
-        currentSum += volume * 0.2;
-        log.debug("Учёт объёма ({} м³): итог {}", volume, currentSum);
+        double volumeDouble = (orderDto.getDeliveryVolume() != null) ? orderDto.getDeliveryVolume() : 0.0;
+        BigDecimal volume = BigDecimal.valueOf(volumeDouble);
+        BigDecimal volumeCost = volume.multiply(new BigDecimal("0.20"));
+        currentSum = currentSum.add(volumeCost);
+        log.debug("Учёт объёма ({} м³): стоимость {}, итог {}", volume, volumeCost, currentSum);
 
         if (fromStreet != null && toStreet != null) {
             if (!fromStreet.equalsIgnoreCase(toStreet)) {
                 log.debug("Улицы разные (Склад: {}, Клиент: {}). Добавляем коэффициент.", fromStreet, toStreet);
-                currentSum += currentSum * 0.2;
+                // +20% за разные улицы
+                currentSum = currentSum.multiply(new BigDecimal("1.20"));
             } else {
                 log.debug("Улицы совпадают ({}). Коэффициент не применяется.", fromStreet);
             }
         } else {
             log.warn("Одна из улиц не заполнена (Склад: '{}', Клиент: '{}'). Применяем коэффициент за дальнюю доставку.",
                     fromStreet, toStreet);
-            currentSum += currentSum * 0.2;
+            // +20% если улицы не указаны
+            currentSum = currentSum.multiply(new BigDecimal("1.20"));
         }
 
-        double finalCost = Math.round(currentSum * 100.0) / 100.0;
-        log.info("Расчёт стоимости доставки для заказа {} завершён. Итоговая стоимость: {}", orderDto.getOrderId(), finalCost);
-        return finalCost;
+        // Округление до 2 знаков после запятой (HALF_UP — стандартное банковское)
+        log.info("Расчёт стоимости доставки для заказа {} завершён. Итоговая стоимость: {}", orderDto.getOrderId(), currentSum);
+
+        return currentSum;
     }
+
 
     private void fillAddress(Delivery entity, AddressDto addr, boolean isFrom) {
         if (addr == null) return;

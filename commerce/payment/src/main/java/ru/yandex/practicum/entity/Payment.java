@@ -2,6 +2,8 @@ package ru.yandex.practicum.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -24,16 +26,16 @@ public class Payment {
     private UUID shoppingCartId;
 
     @Column
-    private Double productTotal;
+    private BigDecimal productTotal;
 
     @Column
-    private Double deliveryPrice;
+    private BigDecimal deliveryPrice;
 
     @Column
-    private Double taxAmount;
+    private BigDecimal taxAmount;
 
     @Column(nullable = false)
-    private Double totalAmount;
+    private BigDecimal totalAmount;
 
     @Enumerated(EnumType.STRING)
     @Column(length = 20, nullable = false)

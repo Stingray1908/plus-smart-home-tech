@@ -8,6 +8,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.GenericGenerator;
 import ru.yandex.practicum.dto.OrderStatus;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -39,13 +40,13 @@ public class Order {
     private UUID deliveryId;
 
     @Column(name = "total_price", precision = 10, scale = 2)
-    private Double totalPrice;
+    private BigDecimal totalPrice;
 
     @Column(name = "product_price", precision = 10, scale = 2)
-    private Double productPrice;
+    private BigDecimal productPrice;
 
     @Column(name = "delivery_price", precision = 10, scale = 2)
-    private Double deliveryPrice;
+    private BigDecimal deliveryPrice;
 
     @Column(name = "delivery_weight")
     private Double deliveryWeight;

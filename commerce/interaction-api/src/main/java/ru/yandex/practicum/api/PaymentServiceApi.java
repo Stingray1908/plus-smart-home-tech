@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import ru.yandex.practicum.dto.OrderDto;
 import ru.yandex.practicum.dto.PaymentDto;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @FeignClient(name = "payment", path = "/api/v1/payment")
@@ -24,14 +25,14 @@ public interface PaymentServiceApi {
      * Расчёт полной стоимости заказа: товары + НДС (10%) + доставка.
      */
     @PostMapping("/totalCost")
-    public ResponseEntity<Double> calculateTotalCost(@RequestBody OrderDto orderDto);
+    public ResponseEntity<BigDecimal> calculateTotalCost(@RequestBody OrderDto orderDto);
 
     /**
      * POST /api/v1/payment/productCost
      * Только расчёт стоимости товаров (для UI).
      */
     @PostMapping("/productCost")
-    public ResponseEntity<Double> calculateProductCost(@RequestBody OrderDto orderDto);
+    public ResponseEntity<BigDecimal> calculateProductCost(@RequestBody OrderDto orderDto);
 
     /**
      * POST /api/v1/payment/refund

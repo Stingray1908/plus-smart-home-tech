@@ -10,6 +10,7 @@ import ru.yandex.practicum.dto.DeliveryDto;
 import ru.yandex.practicum.dto.OrderDto;
 import ru.yandex.practicum.service.DeliveryService;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @RestController
@@ -56,8 +57,8 @@ public class DeliveryController implements DeliveryServiceApi {
     }
 
     @Override
-    public ResponseEntity<Double> calculateDeliveryCost(@RequestBody OrderDto dto) {
-        Double cost = deliveryService.calculateCost(dto);
+    public ResponseEntity<BigDecimal> calculateDeliveryCost(@RequestBody OrderDto dto) {
+        BigDecimal cost = deliveryService.calculateCost(dto);
         return ResponseEntity.ok(cost);
     }
 }

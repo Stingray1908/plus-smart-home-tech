@@ -14,7 +14,9 @@ import ru.yandex.practicum.entity.Payment;
 import ru.yandex.practicum.entity.PaymentStatus;
 import ru.yandex.practicum.repository.PaymentRepository;
 
+import java.math.BigDecimal;
 import java.util.UUID;
+import java.util.function.BiFunction;
 
 @Service
 @RequiredArgsConstructor
@@ -31,12 +33,12 @@ public class PaymentService {
      * - totalPayment = сумма товаров
      * - остальные поля = null (доставка и налоги ещё не рассчитаны)
      */
-    public double calculateProducts(OrderDto dto) {
+    public BigDecimal calculateProducts(OrderDto dto) {
         if (dto.getProducts() == null || dto.getProducts().isEmpty()) {
-            return 0.0;
+            return BigDecimal.ZERO;
         }
 
-        double total = 0.0;
+        BigDecimal total = BigDecimal.ZERO;
         for (var entry : dto.getProducts().entrySet()) {
             UUID productId = entry.getKey();
             Long quantity = entry.getValue();
@@ -50,7 +52,7 @@ public class PaymentService {
                 throw new IllegalStateException("Продукт id=" + productId + " не содержит цены");
             }
 
-            total += product.getPrice() * quantity;
+            total = total.add(product.getPrice().add(new BigDecimal(quantity)));
         }
         return total;
     }
@@ -64,19 +66,19 @@ public class PaymentService {
      * - НДС 10% от суммы товаров
      * - стоимость доставки (заглушка)
      */
-    public Double calculateTotalCost(OrderDto orderDto) {
-        Double productsTotal = calculateProducts(orderDto);
+    public BigDecimal calculateTotalCost(OrderDto orderDto) {
+        BigDecimal productsTotal = calculateProducts(orderDto);
 
-        if (productsTotal == null || productsTotal <= 0.0) {
-            productsTotal = 0.0;
+        if (productsTotal == null || productsTotal.compareTo(BigDecimal.ZERO) <= 0) {
+            productsTotal = BigDecimal.ZERO;
         }
 
-        double vat = productsTotal * 0.10;
-        double deliveryTotal = (orderDto.getDeliveryPrice() != null)
-                ? orderDto.getDeliveryPrice().doubleValue()
-                : 0.0;
+        BigDecimal vat = productsTotal.multiply(new BigDecimal("0.10"));
+        BigDecimal deliveryTotal = (orderDto.getDeliveryPrice() != null)
+                ? orderDto.getDeliveryPrice()
+                : BigDecimal.ZERO;
 
-        double finalTotal = productsTotal + vat + deliveryTotal;
+        BigDecimal finalTotal = productsTotal.add(vat).add(deliveryTotal);
 
         log.debug(
                 "Расчёт полной стоимости: товары={}, НДС={}, доставка={}, итого={}",
@@ -94,14 +96,14 @@ public class PaymentService {
      */
     @Transactional
     public PaymentDto createPayment(OrderDto orderDto) {
-        Double productTotal = calculateProducts(orderDto);
+        BigDecimal productTotal = calculateProducts(orderDto);
         if (productTotal == null) {
-            productTotal = 0.0;
+            productTotal = BigDecimal.ZERO;
         }
 
-        Double deliveryPrice = orderDto.getDeliveryPrice().doubleValue();
-        Double taxAmount = productTotal * 0.10;
-        Double totalAmount = orderDto.getTotalPrice().doubleValue();
+        BigDecimal deliveryPrice = orderDto.getDeliveryPrice();
+        BigDecimal taxAmount = productTotal.multiply(new BigDecimal("0.10"));
+        BigDecimal totalAmount = orderDto.getTotalPrice();
 
         log.info("Создание платежа для заказа {}. Товары: {}, Доставка: {}, Налог: {}, Итого: {}",
                 orderDto.getOrderId(), productTotal, deliveryPrice, taxAmount, totalAmount);

@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.GenericGenerator;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Entity
@@ -34,5 +35,5 @@ public class OrderItem {
     private Long quantity;
 
     @Column(name = "price_at_moment", precision = 10, scale = 2, nullable = false)
-    private Long priceAtMoment;
+    private BigDecimal priceAtMoment;
 }

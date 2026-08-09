@@ -21,6 +21,7 @@ import ru.yandex.practicum.exception.*;
 import ru.yandex.practicum.repository.OrderItemRepository;
 import ru.yandex.practicum.repository.OrderRepository;
 
+import java.math.BigDecimal;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -93,9 +94,9 @@ public class OrderService {
         Order order = Order.builder()
                 .shoppingCartId(cart.getShoppingCartId())
                 .state(OrderStatus.NEW)
-                .totalPrice(0d)
-                .productPrice(0d)
-                .deliveryPrice(0d)
+                .totalPrice(BigDecimal.ZERO)
+                .productPrice(BigDecimal.ZERO)
+                .deliveryPrice(BigDecimal.ZERO)
                 .deliveryWeight(totalWeight)
                 .deliveryVolume(totalVolume)
                 .fragile(fragile)
@@ -106,7 +107,7 @@ public class OrderService {
         List<OrderItem> items = buildOrderItems(order, cart.getProducts());
         orderItemRepository.saveAll(items);
 
-        double productPriceValue = calculateProductPrice(order, items);
+        BigDecimal productPriceValue = calculateProductPrice(order, items);
         order.setProductPrice(productPriceValue);
         order.setTotalPrice(productPriceValue); // пока без доставки
         orderRepository.save(order);
@@ -133,10 +134,9 @@ public class OrderService {
         orderRepository.save(order);
 
         // 7. Расчёт стоимости доставки
-        Double deliveryPriceValue = calculateDeliveryCost(order);
-        double deliveryPriceLong = Math.round(deliveryPriceValue);
+        BigDecimal deliveryPriceValue = calculateDeliveryCost(order);
 
-        order.setDeliveryPrice(deliveryPriceLong);
+        order.setDeliveryPrice(deliveryPriceValue);
         orderRepository.save(order);
 
         // 8. Запуск процесса оплаты
@@ -162,9 +162,9 @@ public class OrderService {
 
         order.setPaymentId(paymentDto.getPaymentId());
 
-        Double finalTotalPrice = (paymentDto.getTotalPayment() != null)
-                ? Math.round(paymentDto.getTotalPayment())
-                : 0d;
+        BigDecimal finalTotalPrice = (paymentDto.getTotalPayment() != null)
+                ? paymentDto.getTotalPayment()
+                : BigDecimal.ZERO;
         order.setTotalPrice(finalTotalPrice);
 
         orderRepository.save(order);
@@ -223,7 +223,7 @@ public class OrderService {
         Map<UUID, OrderItem> itemMap = items.stream()
                 .collect(Collectors.toMap(OrderItem::getProductId, i -> i));
 
-        double newProductPrice = 0;
+        BigDecimal newProductPrice = BigDecimal.ZERO;
         Map<UUID, Long> finalProductsToReturnToWarehouse = new HashMap<>();
 
         for (var entry : productsToReturn.entrySet()) {
@@ -244,7 +244,9 @@ public class OrderService {
             }
 
             item.setQuantity(item.getQuantity() - returnQty);
-            newProductPrice += item.getPriceAtMoment() * item.getQuantity();
+            newProductPrice = newProductPrice.
+                    add(item.getPriceAtMoment()
+                            .multiply(new BigDecimal(item.getQuantity())));
 
             if (currentState != OrderStatus.ASSEMBLY_FAILED) {
                 finalProductsToReturnToWarehouse.put(productId, returnQty);
@@ -259,7 +261,7 @@ public class OrderService {
         }
 
         order.setProductPrice(newProductPrice);
-        order.setTotalPrice(newProductPrice + order.getDeliveryPrice());
+        order.setTotalPrice(newProductPrice.add(order.getDeliveryPrice()));
 
         boolean allItemsReturned = items.stream().allMatch(i -> i.getQuantity() == 0);
 
@@ -299,7 +301,7 @@ public class OrderService {
                 .build();
 
         log.info("Вызов сервиса доставки для заказа {}", orderId);
-        ResponseEntity<Double> response;
+        ResponseEntity<BigDecimal> response;
         try {
             response = deliveryServiceApi.calculateDeliveryCost(requestDto);
         } catch (FeignException e) {
@@ -313,7 +315,7 @@ public class OrderService {
             );
         }
 
-        double deliveryPrice = Math.round(response.getBody());
+        BigDecimal deliveryPrice = response.getBody();
         log.info("Стоимость доставки для заказа {}: {}", orderId, deliveryPrice);
 
         order.setDeliveryPrice(deliveryPrice);
@@ -329,7 +331,7 @@ public class OrderService {
     public OrderDto calculateTotal(UUID orderId) {
         Order order = findOrderOrFail(orderId);
 
-        if (order.getDeliveryPrice() == null || order.getDeliveryPrice() <= 0) {
+        if (order.getDeliveryPrice() == null || order.getDeliveryPrice().compareTo(BigDecimal.ZERO) <= 0) {
             throw new NotEnoughInfoInOrderToCalculateException(
                     "Сначала рассчитайте доставку через /api/v1/order/calculate/delivery", 400
             );
@@ -353,12 +355,12 @@ public class OrderService {
                 .deliveryPrice(order.getDeliveryPrice())
                 .build();
 
-        ResponseEntity<Double> response = paymentServiceApi.calculateTotalCost(requestDto);
+        ResponseEntity<BigDecimal> response = paymentServiceApi.calculateTotalCost(requestDto);
         if (!response.getStatusCode().is2xxSuccessful()) {
             throw new IllegalStateException("Сервис оплаты не смог рассчитать сумму");
         }
 
-        Double totalAmount = response.getBody();
+        BigDecimal totalAmount = response.getBody();
         if (totalAmount == null) {
             throw new IllegalArgumentException("Пустой ответ от сервиса оплаты");
         }
@@ -580,12 +582,12 @@ public class OrderService {
                     "Оплата возможна только для заказа со статусом ASSEMBLED. Текущий статус: " + order.getState()
             );
         }
-        if (order.getDeliveryPrice() == null || order.getDeliveryPrice() <= 0) {
+        if (order.getDeliveryPrice() == null || order.getDeliveryPrice().compareTo(BigDecimal.ZERO) <= 0) {
             throw new NotEnoughInfoInOrderToCalculateException(
                     "Сначала рассчитайте доставку через /api/v1/order/calculate/delivery", 400
             );
         }
-        if (order.getTotalPrice() == null || order.getTotalPrice() <= 0) {
+        if (order.getTotalPrice() == null || order.getTotalPrice().compareTo(BigDecimal.ZERO) <= 0) {
             throw new NotEnoughInfoInOrderToCalculateException(
                     "Сначала рассчитайте полную стоимость через /api/v1/order/calculate/total", 400
             );
@@ -611,12 +613,12 @@ public class OrderService {
                         .order(order)
                         .productId(entry.getKey())
                         .quantity(entry.getValue())
-                        .priceAtMoment(0L) // цена будет проставлена позже
+                        .priceAtMoment(BigDecimal.ZERO) // цена будет проставлена позже
                         .build())
                 .toList();
     }
 
-    private long calculateProductPrice(Order order, List<OrderItem> items) {
+    private BigDecimal calculateProductPrice(Order order, List<OrderItem> items) {
         Map<UUID, Long> productsMap = items.stream()
                 .filter(i -> i.getQuantity() > 0)
                 .collect(Collectors.toMap(
@@ -629,19 +631,18 @@ public class OrderService {
                 .products(productsMap)
                 .build();
 
-        ResponseEntity<Double> response = paymentServiceApi.calculateProductCost(requestDto);
+        ResponseEntity<BigDecimal> response = paymentServiceApi.calculateProductCost(requestDto);
         if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
             throw new IllegalStateException(
                     "Не удалось рассчитать стоимость товаров: сервис вернул статус " + response.getStatusCode()
             );
         }
 
-        double total = response.getBody();
-        return Math.round(total);
+        return response.getBody();
     }
 
 
-    private Double calculateDeliveryCost(Order order) {
+    private BigDecimal calculateDeliveryCost(Order order) {
         OrderDto requestDto = OrderDto.builder()
                 .orderId(order.getId())
                 .deliveryWeight(order.getDeliveryWeight())
