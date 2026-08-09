@@ -14,6 +14,7 @@ import ru.yandex.practicum.repository.WarehouseStockRepository;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -168,18 +169,28 @@ public class WarehouseService {
             return;
         }
 
-        for (Map.Entry<UUID, Long> entry : products.entrySet()) {
+        Map<UUID, Long> validReturns = products.entrySet().stream()
+                .filter(e -> e.getValue() > 0)
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+        if (validReturns.isEmpty()) {
+            log.info("Нет валидных возвратов для обработки");
+            return;
+        }
+
+        List<WarehouseStock> stocks = warehouseStockRepository.findAllByProductIdIn(validReturns.keySet());
+
+        Map<UUID, WarehouseStock> stockMap = stocks.stream()
+                .collect(Collectors.toMap(WarehouseStock::getProductId, Function.identity()));
+
+        for (var entry : validReturns.entrySet()) {
             UUID productId = entry.getKey();
             long quantity = entry.getValue();
 
-            if (quantity <= 0) {
-                log.warn("Пропущен товар {}: количество возврата {} <= 0", productId, quantity);
-                continue;
+            WarehouseStock stock = stockMap.get(productId);
+            if (stock == null) {
+                throw new IllegalArgumentException("Товар не найден на складе: productId=" + productId);
             }
-
-            WarehouseStock stock = warehouseStockRepository.findByProductId(productId)
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Товар не найден на складе: productId=" + productId));
 
             long currentAvailable = stock.getQuantity();
             stock.setQuantity(currentAvailable + quantity);
@@ -187,6 +198,7 @@ public class WarehouseService {
             log.info("Возврат товара {}: +{} шт. Новый остаток: {}", productId, quantity, stock.getQuantity());
         }
     }
+
 
     private ValidationResult validateAndCalculate(Map<UUID, Long> products) {
         if (products.isEmpty()) {
