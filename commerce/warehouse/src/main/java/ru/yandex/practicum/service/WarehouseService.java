@@ -130,10 +130,7 @@ public class WarehouseService {
             );
         }
 
-        for (OrderBooking booking : bookings) {
-            booking.setDeliveryId(deliveryId);
-            orderBookingRepository.save(booking);
-        }
+            orderBookingRepository.saveAll(bookings);
     }
 
     public AddressDto getWarehouseAddress() {
