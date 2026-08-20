@@ -1,0 +1,103 @@
+package ru.yandex.practicum.controller;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import ru.yandex.practicum.api.OrderServiceApi;
+import ru.yandex.practicum.dto.CreateNewOrderRequest;
+import ru.yandex.practicum.dto.OrderDto;
+import ru.yandex.practicum.dto.ProductReturnRequest;
+import ru.yandex.practicum.service.OrderService;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/v1/order")
+@RequiredArgsConstructor
+@Slf4j
+public class OrderController implements OrderServiceApi {
+
+    private final OrderService orderService;
+
+    @Override
+    public ResponseEntity<OrderDto> createNewOrder(@RequestBody CreateNewOrderRequest request) {
+        log.debug("Получен запрос на создание заказа, shoppingCartId={}",
+                request.getShoppingCart() != null ? request.getShoppingCart().getShoppingCartId() : null);
+
+        OrderDto result = orderService.createOrder(request);
+        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping
+    public ResponseEntity<List<OrderDto>> getOrders(
+            @RequestParam(name = "username") String username,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        log.debug("Запрос заказов для username={}, page={}, size={}", username, page, size);
+        List<OrderDto> orders = orderService.getOrdersByUsername(username, page, size);
+        return ResponseEntity.ok(orders);
+    }
+
+    @Override
+    public ResponseEntity<OrderDto> returnOrder(@RequestBody ProductReturnRequest request) {
+        OrderDto dto = orderService.returnOrder(request);
+        return ResponseEntity.ok(dto);
+    }
+
+    @Override
+    public ResponseEntity<OrderDto> markOrderPaymentAsFailed(@RequestBody UUID orderId) {
+        var dto = orderService.markOrderPaymentAsFailed(orderId);
+        return ResponseEntity.ok(dto);
+    }
+
+    @Override
+    public ResponseEntity<OrderDto> markOrderPaymentAsPaid(@RequestBody UUID orderId) {
+        orderService.markOrderPaymentAsPaid(orderId);
+        return ResponseEntity.ok().build();
+    }
+
+    @Override
+    public ResponseEntity<OrderDto> handleDelivery(@RequestBody UUID orderId) {
+        var dto = orderService.markDelivered(orderId);
+        return ResponseEntity.ok(dto);
+    }
+
+    @Override
+    public ResponseEntity<OrderDto> handleDeliveryFailed(@RequestBody UUID orderId) {
+        var dto = orderService.markDeliveryFailed(orderId);
+        return ResponseEntity.ok(dto);
+    }
+
+    @Override
+    public ResponseEntity<OrderDto> handleOrderCompleted(@RequestBody UUID orderId) {
+        var dto = orderService.markCompleted(orderId);
+        return ResponseEntity.ok(dto);
+    }
+
+    @Override
+    public ResponseEntity<OrderDto> handleCalculateTotal(@RequestBody UUID orderId) {
+        var dto = orderService.calculateTotal(orderId);
+        return ResponseEntity.ok(dto);
+    }
+
+    @Override
+    public ResponseEntity<OrderDto> handleCalculateDelivery(@RequestBody UUID orderId) {
+        var dto = orderService.calculateDelivery(orderId);
+        return ResponseEntity.ok(dto);
+    }
+
+    @Override
+    public ResponseEntity<OrderDto> handleAssembly(@RequestBody UUID orderId) {
+        var dto = orderService.markAssembled(orderId);
+        return ResponseEntity.ok(dto);
+    }
+
+    @Override
+    public ResponseEntity<OrderDto> handleAssemblyFailed(@RequestBody UUID orderId) {
+        var dto = orderService.markAssemblyFailed(orderId);
+        return ResponseEntity.ok(dto);
+    }
+}

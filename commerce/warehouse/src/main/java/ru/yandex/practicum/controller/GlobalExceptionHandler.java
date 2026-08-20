@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import ru.yandex.practicum.common.ErrorResponse;
+import ru.yandex.practicum.exception.NoSpecifiedProductInWarehouseException;
 import ru.yandex.practicum.exception.ProductInShoppingCartLowQuantityInWarehouse;
 
 import java.time.Instant;
@@ -17,6 +18,21 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ProductInShoppingCartLowQuantityInWarehouse.class)
     public ResponseEntity<ErrorResponse> handleProductInShoppingCartLowQuantityInWarehouse(
             ProductInShoppingCartLowQuantityInWarehouse ex,
+            HttpServletRequest request
+    ) {
+        ErrorResponse response = ErrorResponse.builder()
+                .httpStatus(ex.getHttpStatus())
+                .userMessage(ex.getUserMessage())
+                .message(ex.getMessage())
+                .timestamp(Instant.now())
+                .build();
+
+        return ResponseEntity.status(ex.getHttpStatus()).body(response);
+    }
+
+    @ExceptionHandler(NoSpecifiedProductInWarehouseException.class)
+    public ResponseEntity<ErrorResponse> handleNoSpecifiedProductInWarehouseException(
+            NoSpecifiedProductInWarehouseException ex,
             HttpServletRequest request
     ) {
         ErrorResponse response = ErrorResponse.builder()

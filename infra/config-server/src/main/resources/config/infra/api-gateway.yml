@@ -85,6 +85,25 @@ spring:
                   firstBackoff: 100ms
                   maxBackoff: 500ms
 
+        - id: ORDER-Reader
+          uri: lb://order
+          predicates:
+            - Path=/api/v1/order/**
+            - Method=GET
+          filters:
+            - name: Retry
+              args:
+                retries: 2
+                statuses:
+                  - BAD_GATEWAY
+                  - SERVICE_UNAVAILABLE
+                  - GATEWAY_TIMEOUT
+                methods:
+                  - GET
+                backoff:
+                  firstBackoff: 100ms
+                  maxBackoff: 500ms
+
         # Personal
         - id: SHOPPING-STORE
           uri: lb://shopping-store
@@ -100,6 +119,22 @@ spring:
           uri: lb://warehouse
           predicates:
             - Path=/api/v1/warehouse/**
+
+        - id: DELIVERY
+          uri: lb://delivery
+          predicates:
+            - Path=/api/v1/delivery/**
+
+        - id: ORDER
+          uri: lb://order
+          predicates:
+            - Path=/api/v1/order/**
+
+        - id: PAYMENT
+          uri: lb://payment
+          predicates:
+            - Path=/api/v1/payment/**
+
 
         # Common
         #- id: SHOPPING-CART-WAREHOUSE

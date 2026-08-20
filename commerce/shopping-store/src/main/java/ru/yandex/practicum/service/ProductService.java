@@ -16,6 +16,7 @@ import ru.yandex.practicum.exception.ProductNotFoundException;
 import ru.yandex.practicum.mapper.ProductMapper;
 import ru.yandex.practicum.repository.ProductRepository;
 
+import java.util.List;
 import java.util.UUID;
 
 import static ru.yandex.practicum.mapper.ProductMapper.toDto;
@@ -32,6 +33,17 @@ public class ProductService {
         return toDto(saved);
     }
 
+    public ProductDto findById(UUID productId) {
+        return toDto(findByIdOrThrowNotFound(productId));
+    }
+
+    public List<ProductDto> getProductsByIds(List<UUID> ids){
+        List<Product> products = productRepository.findProductsByIds(ids);
+        return products.stream()
+                .map(ProductMapper::toDto)
+                .toList();
+    }
+
     public Page<ProductDto> getProductsByCategory(String category, int page, int size, String sort) {
         ProductCategory parsedCategory = ProductCategory.fromString(category);
 
@@ -40,10 +52,6 @@ public class ProductService {
 
         Page<Product> productsPage = productRepository.findAllByProductCategory(parsedCategory, pageable);
         return productsPage.map(ProductMapper::toDto);
-    }
-
-    public ProductDto findById(UUID productId) {
-        return toDto(findByIdOrThrowNotFound(productId));
     }
 
     public ProductDto updateProduct(ProductDto dto) {
